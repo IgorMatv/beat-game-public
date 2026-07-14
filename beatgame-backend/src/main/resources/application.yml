@@ -1,0 +1,43 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/beatgame}
+    username: ${SPRING_DATASOURCE_USERNAME:beatgame}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+deezer:
+  api:
+    base-url: ${DEEZER_API_BASE_URL:https://api.deezer.com}
+
+itunes:
+  api:
+    base-url: ${ITUNES_API_BASE_URL:https://itunes.apple.com}
+
+allowed-origins: ${ALLOWED_ORIGINS:http://localhost,http://localhost:5173}
+
+admin:
+  token: ${ADMIN_TOKEN}
+
+debug: false

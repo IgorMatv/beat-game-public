@@ -1,0 +1,159 @@
+import { create } from 'zustand'
+import type { Player, LobbyPlayer, GameConfig, CategoryType, RoundState, Phase, RoundStartMessage, RoundResultMessage, RoomStateMessage, GameOverMessage, RoomConfigMessage } from '../types'
+
+interface GameStore {
+  playerName: string
+  playerToken: string
+  roomCode: string
+  gameMode: 'solo' | 'multi'
+  players: Player[]
+  lobbyPlayers: LobbyPlayer[]
+  isHost: boolean
+  gameConfig: GameConfig
+  currentRound: RoundState | null
+  scores: Record<string, number>
+  prevScores: Record<string, number>
+  phase: Phase
+  hasAnswered: boolean
+  lastRoundResult: RoundResultMessage | null
+  lastGameOver: GameOverMessage | null
+  musicPaused: boolean
+
+  setPlayerName(name: string): void
+  setPlayerToken(token: string): void
+  setRoomCode(code: string): void
+  setIsHost(v: boolean): void
+  setGameMode(m: 'solo' | 'multi'): void
+  setPhase(p: Phase): void
+  setPlayers(players: Player[]): void
+  updateGameConfig(cfg: Partial<GameConfig>): void
+  applyRoundStart(msg: RoundStartMessage): void
+  applyRoundResult(msg: RoundResultMessage): void
+  applyRoomState(msg: RoomStateMessage): void
+  applyRoomConfig(msg: RoomConfigMessage): void
+  applyGameOver(msg: GameOverMessage): void
+  setHasAnswered(v: boolean): void
+  setMusicPaused(paused: boolean): void
+  resetForRematch(): void
+  reset(): void
+}
+
+function generateToken(): string {
+  // randomUUID requires secure context (HTTPS); getRandomValues works over HTTP too
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const b = crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  return [...b].map((v, i) =>
+    ([3, 5, 7, 9].includes(i) ? '-' : '') + v.toString(16).padStart(2, '0')
+  ).join('')
+}
+
+function getOrCreateToken(): string {
+  const stored = localStorage.getItem('playerToken')
+  if (stored) return stored
+  const token = generateToken()
+  localStorage.setItem('playerToken', token)
+  return token
+}
+
+const DEFAULT_CONFIG: GameConfig = Object.freeze({ rounds: 10, category: 'POP', categoryType: 'GENRE' })
+
+export const useGameStore = create<GameStore>((set) => ({
+  playerName: '',
+  playerToken: getOrCreateToken(),
+  roomCode: '',
+  gameMode: 'multi',
+  players: [],
+  lobbyPlayers: [],
+  isHost: false,
+  gameConfig: { ...DEFAULT_CONFIG },
+  currentRound: null,
+  scores: {},
+  prevScores: {},
+  phase: 'home',
+  hasAnswered: false,
+  lastRoundResult: null,
+  lastGameOver: null,
+  musicPaused: false,
+
+  setPlayerName: (name) => set({ playerName: name }),
+  setPlayerToken: (token) => {
+    localStorage.setItem('playerToken', token)
+    set({ playerToken: token })
+  },
+  setRoomCode: (code) => set({ roomCode: code }),
+  setIsHost: (v) => set({ isHost: v }),
+  setGameMode: (m) => set({ gameMode: m }),
+  setPhase: (p) => set({ phase: p }),
+  setPlayers: (players) => set({ players }),
+  updateGameConfig: (cfg) => set((s) => ({ gameConfig: { ...s.gameConfig, ...cfg } })),
+
+  applyRoundStart: (msg) => set({
+    currentRound: {
+      trackId: msg.trackId,
+      previewUrl: msg.previewUrl,
+      options: msg.options,
+      roundNumber: msg.roundNumber,
+      totalRounds: msg.totalRounds,
+    },
+    hasAnswered: false,
+    phase: 'playing',
+    musicPaused: false,
+  }),
+
+  applyRoundResult: (msg) => set((s) => ({
+    prevScores: { ...s.scores },
+    scores: msg.scores,
+    lastRoundResult: msg,
+    phase: 'answer_reveal',
+  })),
+
+  applyRoomState: (msg) => set((s) => ({
+    lobbyPlayers: msg.players,
+    phase: s.phase === 'home' || s.phase === 'lobby' ? 'lobby' : s.phase,
+  })),
+
+  applyRoomConfig: (msg) => set({
+    gameConfig: { rounds: msg.rounds, category: msg.category, categoryType: msg.categoryType as CategoryType },
+  }),
+
+  applyGameOver: (msg) => set({
+    scores: msg.scores,
+    lastGameOver: msg,
+    phase: 'game_over',
+  }),
+
+  setHasAnswered: (v) => set({ hasAnswered: v }),
+  setMusicPaused: (paused) => set({ musicPaused: paused }),
+
+  resetForRematch: () => set({
+    gameConfig: { ...DEFAULT_CONFIG },
+    currentRound: null,
+    scores: {},
+    prevScores: {},
+    phase: 'lobby',
+    hasAnswered: false,
+    lastRoundResult: null,
+    lastGameOver: null,
+    players: [],
+  }),
+
+  reset: () => set({
+    playerName: '',
+    roomCode: '',
+    gameMode: 'multi',
+    players: [],
+    lobbyPlayers: [],
+    isHost: false,
+    gameConfig: { ...DEFAULT_CONFIG },
+    currentRound: null,
+    scores: {},
+    prevScores: {},
+    phase: 'home',
+    hasAnswered: false,
+    lastRoundResult: null,
+    lastGameOver: null,
+    musicPaused: false,
+  }),
+}))

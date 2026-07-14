@@ -1,0 +1,215 @@
+/* ── ambient (grain is in index.css) ─────────────────── */
+.sc-ambient {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(55% 35% at 82% 10%, color-mix(in oklch, var(--accent) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(55% 40% at 10% 90%, color-mix(in oklch, var(--accent-2) 16%, transparent) 0%, transparent 65%);
+  filter: blur(8px);
+}
+
+/* ── stage ────────────────────────────────────────────── */
+.sc-stage {
+  position: relative; z-index: 2;
+  width: min(440px, 100%);
+  display: grid;
+  gap: 16px;
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-bottom: 120px;
+}
+
+/* ── topbar ───────────────────────────────────────────── */
+.sc-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.sc-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--fg-dim);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  transition: color .15s var(--ease);
+}
+.sc-back:hover { color: var(--fg); }
+.sc-back svg { width: 14px; height: 14px; }
+
+/* ── section heading ──────────────────────────────────── */
+.sc-section {
+  display: grid;
+  gap: 12px;
+}
+.sc-section + .sc-section { margin-top: 16px; }
+.sc-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--fg-mute);
+}
+
+/* ── name input ───────────────────────────────────────── */
+.input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  color: var(--fg);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color .2s var(--ease), background .2s var(--ease), box-shadow .2s var(--ease);
+}
+.input::placeholder { color: var(--fg-mute); font-weight: 400; }
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--accent) 18%, transparent);
+}
+
+/* ── category tabs ────────────────────────────────────── */
+.sc-tabs {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 4px;
+  gap: 2px;
+}
+.sc-tabs button {
+  flex: 1;
+  appearance: none; border: 0;
+  background: transparent;
+  color: var(--fg-mute);
+  padding: 9px 10px;
+  border-radius: 99px;
+  font: inherit;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: background .2s var(--ease), color .2s;
+}
+.sc-tabs button:hover { color: var(--fg-dim); }
+.sc-tabs button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* ── chips ────────────────────────────────────────────── */
+.sc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sc-chip {
+  appearance: none; border: 1px solid var(--line); cursor: pointer;
+  background: var(--surface);
+  color: var(--fg-dim);
+  font: inherit; font-size: 13px; font-weight: 500;
+  padding: 9px 14px;
+  border-radius: 99px;
+  transition: all .15s var(--ease);
+  letter-spacing: -0.005em;
+}
+.sc-chip:hover { border-color: var(--fg-mute); color: var(--fg); }
+.sc-chip.on {
+  background: color-mix(in oklch, var(--accent) 18%, var(--surface));
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.sc-chip.on::before {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 99px;
+  background: var(--accent);
+  margin-right: 7px;
+  vertical-align: middle;
+  box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 70%, transparent);
+}
+
+/* ── rounds segmented ─────────────────────────────────── */
+.sc-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.sc-segmented button {
+  appearance: none; border: 1px solid var(--line); cursor: pointer;
+  background: var(--surface);
+  color: var(--fg-dim);
+  font: inherit;
+  border-radius: var(--radius);
+  padding: 14px 8px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  transition: all .15s var(--ease);
+}
+.sc-segmented button .n {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg); line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.sc-segmented button .l {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.sc-segmented button:hover { border-color: var(--fg-mute); }
+.sc-segmented button.on {
+  background: color-mix(in oklch, var(--accent) 16%, var(--surface));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 18%, transparent);
+}
+.sc-segmented button.on .l {
+  color: color-mix(in oklch, var(--accent) 50%, var(--fg-dim));
+}
+
+/* ── sticky start bar ─────────────────────────────────── */
+.sc-start-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, transparent, var(--bg) 30%);
+  padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+  z-index: 4;
+  display: grid; place-items: center;
+}
+.sc-start-inner {
+  width: min(440px, 100%);
+}
+.sc-start {
+  width: 100%;
+  appearance: none; border: 0; cursor: pointer;
+  font: inherit; font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  font-size: 17px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--accent) 60%, transparent),
+    0 14px 30px -12px color-mix(in oklch, var(--accent) 60%, transparent);
+  transition: transform .15s var(--ease), background .2s;
+}
+.sc-start:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 92%, white);
+}
+.sc-start:active { transform: translateY(1px) scale(.995); }
+.sc-start:disabled {
+  background: var(--surface);
+  color: var(--fg-mute);
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: not-allowed;
+}
+.sc-start .arrow { transition: transform .2s var(--ease); }
+.sc-start:hover:not(:disabled) .arrow { transform: translateX(3px); }

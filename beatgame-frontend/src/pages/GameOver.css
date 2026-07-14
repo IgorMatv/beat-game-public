@@ -1,0 +1,227 @@
+/* ── ambient ──────────────────────────────────────────── */
+.go-ambient {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(55% 35% at 82% 10%, color-mix(in oklch, var(--gold) 16%, transparent) 0%, transparent 60%),
+    radial-gradient(55% 40% at 10% 90%, color-mix(in oklch, var(--accent) 16%, transparent) 0%, transparent 65%);
+  filter: blur(8px);
+}
+.go-ambient.tie {
+  background:
+    radial-gradient(55% 35% at 82% 10%, color-mix(in oklch, var(--accent) 16%, transparent) 0%, transparent 60%),
+    radial-gradient(55% 40% at 10% 90%, color-mix(in oklch, var(--accent-2) 16%, transparent) 0%, transparent 65%);
+}
+
+/* ── confetti canvas ──────────────────────────────────── */
+.go-confetti {
+  position: fixed; inset: 0; pointer-events: none; z-index: 2;
+}
+
+/* ── stage ────────────────────────────────────────────── */
+.go-stage {
+  position: relative; z-index: 3;
+  width: min(440px, 100%);
+  display: grid;
+  gap: 18px;
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-bottom: 120px;
+}
+
+/* ── topbar ───────────────────────────────────────────── */
+.go-topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.go-dot {
+  display: inline-block;
+  width: 6px; height: 6px; border-radius: 99px;
+  background: var(--gold);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--gold) 70%, transparent);
+  margin-right: 8px; vertical-align: 1px;
+}
+.go-dot.tie {
+  background: var(--accent-2);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--accent-2) 70%, transparent);
+}
+
+/* ── hero ─────────────────────────────────────────────── */
+.go-hero {
+  text-align: center;
+  display: grid; gap: 14px;
+  padding: 8px 0 4px;
+  animation: go-fade-up .6s var(--ease) both;
+}
+@keyframes go-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.go-trophy {
+  position: relative;
+  width: 92px; height: 92px; margin: 0 auto;
+  display: grid; place-items: center;
+  border-radius: 28px;
+  background:
+    radial-gradient(60% 50% at 50% 25%, color-mix(in oklch, var(--gold) 45%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid color-mix(in oklch, var(--gold) 40%, var(--line));
+  box-shadow:
+    0 20px 50px -18px color-mix(in oklch, var(--gold) 60%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--gold) 16%, transparent);
+  animation: go-trophy-in .8s var(--ease) both;
+}
+@keyframes go-trophy-in {
+  0%   { opacity: 0; transform: scale(.7) rotate(-8deg); }
+  60%  { opacity: 1; transform: scale(1.05) rotate(2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.go-trophy svg {
+  width: 48px; height: 48px; color: var(--gold);
+  filter: drop-shadow(0 4px 10px color-mix(in oklch, var(--gold) 45%, transparent));
+}
+.go-trophy.tie {
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--line));
+  box-shadow:
+    0 20px 50px -18px color-mix(in oklch, var(--accent) 50%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--accent) 16%, transparent);
+  background:
+    radial-gradient(60% 50% at 50% 25%, color-mix(in oklch, var(--accent) 35%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--surface-2), var(--surface));
+}
+.go-trophy.tie svg { color: var(--fg); filter: none; }
+
+.go-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: .28em; text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.go-kicker b { color: var(--gold); font-weight: 500; }
+.go-kicker.tie b { color: var(--accent-2); }
+
+.go-headline {
+  font-size: clamp(32px, 8.5vw, 44px);
+  font-weight: 700; letter-spacing: -0.03em; line-height: 1;
+  color: var(--fg);
+}
+.go-name {
+  background: linear-gradient(180deg, var(--gold), var(--gold-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.go-headline.tie .go-name {
+  background: none;
+  -webkit-text-fill-color: var(--fg); color: var(--fg);
+}
+
+.go-subhead {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.go-subhead b { color: var(--fg-dim); font-weight: 500; }
+
+/* ── scoreboard ───────────────────────────────────────── */
+.go-board {
+  display: grid; gap: 10px;
+  animation: go-fade-up .6s .15s var(--ease) both;
+}
+.go-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px; padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  position: relative; overflow: hidden;
+}
+.go-rank {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; letter-spacing: .15em;
+  color: var(--fg-mute);
+  width: 26px; text-align: center; font-weight: 700;
+}
+.go-who { display: grid; gap: 3px; min-width: 0; }
+.go-nm {
+  font-size: 17px; font-weight: 600; letter-spacing: -0.015em;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--fg);
+}
+.go-crown { color: var(--gold); width: 14px; height: 14px; flex-shrink: 0; }
+.go-youbadge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 99px;
+  background: var(--accent); color: var(--accent-ink);
+  font-weight: 700;
+}
+.go-score {
+  font-size: 28px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  text-align: right;
+}
+.go-dim {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--fg-mute); font-weight: 400; margin-top: 4px;
+}
+
+/* winner styling */
+.go-entry.winner {
+  border-color: color-mix(in oklch, var(--gold) 55%, var(--line));
+  background:
+    radial-gradient(80% 80% at 0% 50%, color-mix(in oklch, var(--gold) 14%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 20px 40px -20px color-mix(in oklch, var(--gold) 45%, transparent);
+}
+.go-entry.winner::before {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--gold), var(--gold-2));
+}
+.go-entry.winner .go-rank { color: var(--gold); }
+.go-entry.winner .go-score { color: var(--gold); }
+.go-entry.loser { opacity: .92; }
+.go-entry.tied {
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--line));
+}
+.go-entry.tied .go-rank,
+.go-entry.tied .go-score { color: var(--accent-2); }
+
+/* ── actions bar ──────────────────────────────────────── */
+.go-actions-bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, transparent, var(--bg) 30%);
+  padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+  z-index: 4;
+  display: grid; place-items: center;
+}
+.go-actions { width: min(440px, 100%); display: grid; gap: 10px; }
+.go-btn {
+  appearance: none; border: 0; cursor: pointer;
+  font: inherit; font-weight: 600;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 16px;
+  transition: transform .15s var(--ease), background .2s, border-color .2s, color .2s;
+}
+.go-btn:active { transform: translateY(1px) scale(.995); }
+.go-btn-primary {
+  background: var(--accent); color: var(--accent-ink);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--accent) 60%, transparent),
+    0 14px 30px -12px color-mix(in oklch, var(--accent) 60%, transparent);
+}
+.go-btn-primary:hover { background: color-mix(in oklch, var(--accent) 92%, var(--accent-ink)); }
+.go-btn-ghost {
+  background: transparent; color: var(--fg-dim);
+  border: 1px solid var(--line);
+}
+.go-btn-ghost:hover { color: var(--fg); border-color: var(--fg-mute); }
+.go-arrow { transition: transform .2s var(--ease); }
+.go-btn:hover .go-arrow { transform: translateX(3px); }

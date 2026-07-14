@@ -1,0 +1,27 @@
+# Environment and secrets
+.env
+*.env.local
+beatgame-frontend/.env
+beatgame-frontend/.env.local
+
+# Java / Maven
+beatgame-backend/target/
+
+# Node / Vite
+beatgame-frontend/node_modules/
+beatgame-frontend/dist/
+beatgame-frontend/*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker local data exports
+*.tar
+*.dump

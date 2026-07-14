@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Shared surface tokens ─────────────────────────── */
+  --bg:         oklch(0.17 0.02 285);
+  --bg-2:       oklch(0.21 0.025 285);
+  --surface:    oklch(0.24 0.03 285);
+  --surface-2:  oklch(0.29 0.035 285);
+  --line:       oklch(0.33 0.035 285);
+
+  /* ── Shared text tokens ────────────────────────────── */
+  --fg:         oklch(0.97 0.005 285);
+  --fg-dim:     oklch(0.72 0.015 285);
+  --fg-mute:    oklch(0.52 0.02 285);
+
+  /* ── Accent — default purple/blue (Lobby + Game) ───── */
+  --accent:     oklch(0.68 0.19 295);
+  --accent-2:   oklch(0.75 0.16 240);
+  --accent-ink: oklch(0.98 0.01 295);
+
+  /* ── Semantic colours ──────────────────────────────── */
+  --good:       oklch(0.78 0.16 150);
+  --good-ink:   oklch(0.18 0.05 150);
+  --bad:        oklch(0.66 0.19 25);
+  --bad-ink:    oklch(0.98 0.02 25);
+  --gold:       oklch(0.86 0.16 90);
+  --gold-2:     oklch(0.78 0.17 70);
+  --gold-ink:   oklch(0.20 0.06 90);
+
+  /* ── Shape + motion tokens ─────────────────────────── */
+  --radius:     14px;
+  --radius-sm:  10px;
+  --radius-lg:  22px;
+  --ease:       cubic-bezier(.2, .7, .2, 1);
+}
+
+/* ── Home screen accent override (orange) ──────────────
+   Apply on the Home page root element via data-theme="home"  */
+[data-theme="home"] {
+  --accent:     oklch(0.78 0.17 55);
+  --accent-2:   oklch(0.82 0.16 210);
+  --accent-ink: oklch(0.18 0.05 55);
+}
+
+/* ── Global resets ─────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-feature-settings: "ss01", "ss02";
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* ── Shared grain texture ──────────────────────────────── */
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.7'/></svg>");
+}
+
+/* ── Shared pulse keyframe ─────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* ── Shared equalizer-bar keyframe ────────────────────── */
+@keyframes bar {
+  0%, 100% { transform: scaleY(0.35); }
+  50%       { transform: scaleY(1); }
+}
+
+/* ── Shared fade-up keyframe ───────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

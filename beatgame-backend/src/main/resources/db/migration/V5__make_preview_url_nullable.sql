@@ -1,0 +1,1 @@
+ALTER TABLE tracks ALTER COLUMN preview_url DROP NOT NULL;
