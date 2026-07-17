@@ -1,65 +1,90 @@
-# Architecture
+# 🧭 Architecture
 
-## High-Level Flow
+> How BeatGame moves data from the browser to the game engine, persistence layer, and observability stack.
 
-BeatGame is split into a browser frontend, a Spring Boot backend, PostgreSQL, Redis, and an observability stack.
+[← Back to README](../README.md) · [Local development](LOCAL_DEVELOPMENT.md) · [WebSocket reliability](WEBSOCKET_RELIABILITY.md)
 
-```text
-Browser
-  | HTTP / WebSocket
-Nginx frontend container
-  | /api and /ws proxy
-Spring Boot backend
-  | JPA              | runtime state
-PostgreSQL          Redis
+## System at a glance
 
-Prometheus -> Spring Boot Actuator /actuator/prometheus
-Grafana    -> Prometheus datasource
+BeatGame is a small distributed system packaged as one Docker Compose stack. Nginx serves the React application and provides a single entry point for REST and WebSocket traffic; Spring Boot owns the game rules and coordinates durable and transient state.
+
+```mermaid
+flowchart LR
+    Browser["🌐 React client"]
+    Nginx["Nginx<br/>static files + reverse proxy"]
+    API["Spring Boot<br/>REST + STOMP"]
+    DB[(PostgreSQL<br/>durable state)]
+    Cache[(Redis<br/>live game state)]
+    Prom["Prometheus"]
+    Grafana["Grafana"]
+
+    Browser -- "HTTP / WebSocket" --> Nginx
+    Nginx -- "/api · /ws" --> API
+    API -- "JPA" --> DB
+    API -- "scores · rounds · presence" --> Cache
+    Prom -- "scrape /actuator/prometheus" --> API
+    Grafana -- "query" --> Prom
 ```
 
-## Backend
+## Responsibility map
 
-The backend owns room lifecycle, player registration, game rounds, scoring, track catalog access, and WebSocket event handling.
+| Layer | Owns | Key technology |
+|---|---|---|
+| Browser | Navigation, lobby UI, audio playback, local game state | React, TypeScript, Zustand |
+| Edge | SPA delivery and API/WebSocket proxying | Nginx |
+| Application | Rooms, players, rounds, scoring, catalog and events | Spring Boot |
+| Durable storage | Rooms, players and track catalog | PostgreSQL, Flyway |
+| Runtime storage | Active game state, scores, readiness and disconnect markers | Redis |
+| Telemetry | Metrics collection and dashboards | Actuator, Prometheus, Grafana |
 
-Important packages:
+## Backend map
 
-- `com.beatgame.room`: room creation, joining, room status, cleanup.
-- `com.beatgame.player`: player records and player tokens.
-- `com.beatgame.game`: game state, round orchestration, Redis-backed runtime state.
-- `com.beatgame.track`: track catalog, genres, decades, providers, preview URL resolution.
-- `com.beatgame.websocket`: STOMP endpoint, inbound auth interceptor, game message handlers, disconnect handling.
-- `com.beatgame.config`: Redis, REST clients, rate limiting, app configuration.
+The backend is organized by domain rather than by technical layer:
 
-PostgreSQL stores durable entities such as rooms, players, and tracks. Redis stores active game state, scores, readiness, and disconnected-player markers.
+| Package | Responsibility |
+|---|---|
+| `com.beatgame.room` | Room creation, joining, status and cleanup |
+| `com.beatgame.player` | Player records and player tokens |
+| `com.beatgame.game` | Round orchestration, scoring and Redis-backed state |
+| `com.beatgame.track` | Catalog, genres, decades, providers and preview resolution |
+| `com.beatgame.websocket` | STOMP endpoint, inbound session context and game events |
+| `com.beatgame.config` | Redis, REST clients, rate limiting and application wiring |
 
-## Frontend
+> **Storage boundary:** PostgreSQL holds data that should outlive a game process. Redis holds state that must be fast during a live match. Some round timers still live in the Java process; see [WebSocket reliability](WEBSOCKET_RELIABILITY.md#server-restart).
 
-The frontend is a React/Vite app. It handles room creation/joining, lobby configuration, gameplay, audio playback, round result overlays, and game-over state.
+## Frontend map
 
-Important areas:
+| Area | Role |
+|---|---|
+| `src/pages` | Home, lobby, solo configuration, gameplay and results |
+| `src/components` | Reusable game UI such as timer, scoreboard and audio player |
+| `src/hooks/useWebSocket.ts` | STOMP/SockJS lifecycle, subscriptions and event publishing |
+| `src/store/useGameStore.ts` | Client-side game state and player identity |
+| `src/types` | REST and WebSocket payload shapes |
 
-- `src/pages`: page-level flows for home, lobby, game, solo config, and game over.
-- `src/hooks/useWebSocket.ts`: STOMP/SockJS connection, subscriptions, publishing game events.
-- `src/store/useGameStore.ts`: client-side game state.
-- `src/types`: shared DTO shapes used by WebSocket and API flows.
+## Real-time message flow
 
-## WebSocket Model
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as Spring WebSocket
+    participant G as Game services
+    participant R as Redis
 
-The backend exposes `/ws` using SockJS with STOMP destinations:
+    C->>W: CONNECT { playerToken, roomCode }
+    C->>W: SUBSCRIBE /topic/room.{code}
+    C->>W: SUBSCRIBE /topic/game.{code}
+    C->>W: SEND /app/game.answer
+    W->>G: Validate session and handle command
+    G->>R: Update answer / score / round state
+    G-->>W: Game event
+    W-->>C: MESSAGE /topic/game.{code}
+```
 
-- Client publishes commands under `/app`, for example `/app/game.start`, `/app/game.answer`, `/app/game.ready`, `/app/game.rejoin`, `/app/room.config`, `/app/game.pause`.
-- Server broadcasts room state under `/topic/room.{roomCode}`.
-- Server broadcasts game events under `/topic/game.{roomCode}`.
+Clients publish commands below `/app`—for example `game.start`, `game.answer`, `game.ready`, `game.rejoin`, `room.config`, and `game.pause`. The server broadcasts room and game updates on room-scoped `/topic` destinations.
 
-The frontend subscribes to both topics after connecting.
+## Deployment shape
 
-## Runtime Infrastructure
+Docker Compose starts six services: `frontend`, `backend`, `postgres`, `redis`, `prometheus`, and `grafana`. Only the frontend and loopback-bound Grafana port are published by default; the remaining services communicate on the internal Docker network.
 
-Docker Compose starts:
-
-- `postgres`: durable relational data.
-- `redis`: active game state and transient markers.
-- `backend`: Spring Boot app.
-- `frontend`: Nginx serving the built React app and proxying API/WebSocket traffic.
-- `prometheus`: scrapes backend Actuator metrics.
-- `grafana`: provisioned dashboards and Prometheus datasource.
+For startup instructions, configuration values, and useful commands, continue with [Local development](LOCAL_DEVELOPMENT.md).

@@ -1,81 +1,91 @@
-# WebSocket Reliability
+# 🔌 WebSocket Reliability
 
-This document describes the current WebSocket behavior. It is intentionally written as an implementation note, including current limits and recommended improvements.
+> What happens when a client disconnects, reconnects, reloads, or encounters a backend restart.
 
-## Current Implementation
+[← Back to README](../README.md) · [Architecture](ARCHITECTURE.md) · [Security](SECURITY.md)
 
-Frontend:
+## Reliability snapshot
 
-- Uses SockJS and STOMP.js in `beatgame-frontend/src/hooks/useWebSocket.ts`.
-- Connects to `${VITE_API_BASE_URL}/ws`, or `/ws` when `VITE_API_BASE_URL` is empty.
-- Sends `playerToken` and `roomCode` as STOMP connect headers.
-- Subscribes to `/topic/room.{roomCode}` and `/topic/game.{roomCode}`.
-- Uses `reconnectDelay: 5000`, so reconnect attempts happen every 5 seconds.
-- Does not currently configure exponential backoff or jitter.
-- Does not explicitly configure STOMP heartbeat intervals in the client.
+| Scenario | Current behavior | Confidence |
+|---|---|---|
+| Short network interruption | STOMP retries every 5 seconds | Supported |
+| Multiplayer rejoin within 60 seconds | Server keeps a Redis disconnect marker and restores state | Supported path |
+| Disconnect beyond 60 seconds | Remaining player wins; runtime room data is cleared | Supported |
+| Solo disconnect | Runtime game data is cleared immediately | Supported |
+| Full page reload | Recovery depends on locally retained room/player context | Partial |
+| Backend restart mid-round | Clients reconnect, but round continuity is not guaranteed | Limited |
+| Multi-instance backend | In-memory broker and timers are not coordinated | Not supported |
 
-Backend:
+## Connection model
 
-- Exposes `/ws` with SockJS in `WebSocketConfig`.
-- Uses Spring's simple in-memory STOMP broker for `/topic` destinations.
-- Accepts client commands on `/app/*` destinations.
-- Uses `AuthChannelInterceptor` to associate connection headers with the WebSocket session.
-- Handles disconnects with `DisconnectEventListener`.
+The React client uses SockJS and STOMP.js through `src/hooks/useWebSocket.ts`. It connects to `${VITE_API_BASE_URL}/ws`—or `/ws` when the base URL is empty—and sends `playerToken` plus `roomCode` as STOMP connection headers.
 
-## Client Disconnect During a Multiplayer Game
+After connecting, it subscribes to:
 
-When one player disconnects during an active multiplayer game:
+- `/topic/room.{roomCode}` for lobby and room state
+- `/topic/game.{roomCode}` for rounds, scores, pauses, and game-over events
 
-1. Spring emits `SessionDisconnectEvent`.
-2. `DisconnectEventListener` loads the room and game state.
-3. The player is marked as disconnected in Redis.
-4. A 60-second rejoin timer starts.
-5. If the player is still marked disconnected after 60 seconds, the game ends and the remaining player is declared winner.
-6. Runtime game data for the room is cleared from Redis.
+The backend exposes `/ws`, accepts commands under `/app`, and uses Spring's simple in-memory broker for `/topic` destinations. `AuthChannelInterceptor` attaches the connection headers to the WebSocket session.
 
-If the player reconnects within the window and publishes `/app/game.rejoin`, the backend attempts to restore state through `gameService.handleRejoin`.
+## Multiplayer disconnect timeline
 
-## Solo Disconnect
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Spring backend
+    participant R as Redis
 
-For solo rooms, a disconnect clears Redis game data immediately. A game-over WebSocket message is not useful in that case because the only client connection is already gone.
+    C-xS: Connection lost
+    S->>R: Mark player disconnected (60 s)
+    S->>S: Schedule timeout check
 
-## Page Reload or Browser Reopen
+    alt Client returns within 60 seconds
+        C->>S: Reconnect + /app/game.rejoin
+        S->>R: Clear disconnect marker
+        S-->>C: Restore current game state
+    else Timeout expires
+        S->>R: Confirm marker still exists
+        S-->>C: Remaining player wins
+        S->>R: Clear room runtime data
+    end
+```
 
-The client stores game-related state in the frontend store. On WebSocket reconnect, the hook publishes `/app/game.rejoin` only when the local phase is neither `home` nor `lobby`.
+For a solo room, disconnect handling clears Redis game data immediately. Sending a game-over event would not help because the only subscribed client is already gone.
 
-Practical impact:
+## Page reload and browser reopen
 
-- A short network drop while the page remains open has a recovery path.
-- A full reload can lose in-memory frontend state unless route/local storage state is enough to reconnect with the room code and player token.
-- The backend-side room/game state can still exist in PostgreSQL/Redis, but the client needs a reliable way to rediscover and replay it.
+The frontend keeps most game state in its client store. A reconnect publishes `/app/game.rejoin` only when the local phase is neither `home` nor `lobby`.
 
-## Server Restart
+This creates an important distinction:
 
-Server restart recovery is limited in the current implementation.
+- a brief network drop while the page stays open has a recovery path;
+- a full reload may lose enough in-memory context to prevent automatic recovery;
+- authoritative room/game data may still exist in PostgreSQL and Redis, but the client needs a snapshot mechanism to rediscover it.
 
-What survives:
+## Server restart
 
-- PostgreSQL data survives because it is stored in the database volume.
-- Redis data survives if the Redis container and volume remain available.
+| Survives | Does not fully survive |
+|---|---|
+| PostgreSQL data and volume | Java timers and scheduled round work |
+| Redis data while its container/volume remains | In-memory STOMP subscriptions and broker state |
+| Durable room/player/track records | Guaranteed continuation at the exact round deadline |
 
-What does not fully survive:
+After a backend restart, clients can attempt to reconnect, but full mid-round continuation is not guaranteed. Reliable recovery would require persisted deadlines and an authoritative state snapshot rather than relying on process-local timers.
 
-- Active Java timers and scheduled tasks are in process memory.
-- Spring's simple STOMP broker is in memory.
-- WebSocket subscriptions disappear and clients must reconnect.
+## Heartbeats and retry strategy
 
-Practical impact: after a backend restart, clients may reconnect, but active round timing and full game continuation are not guaranteed without additional recovery logic.
+The client currently uses a fixed `reconnectDelay` of 5 seconds. Explicit application heartbeat intervals, exponential backoff, and jitter are not configured.
 
-## Heartbeat
+That is adequate for a small demo, but at larger scale synchronized retries can create a reconnect spike. Heartbeats would also make dead-connection detection more predictable.
 
-No explicit STOMP heartbeat configuration is present in the frontend hook or backend WebSocket config. SockJS/STOMP and underlying transports may still detect broken connections eventually, but the application does not currently define a clear heartbeat policy.
+## Improvement roadmap
 
-## Recommendations
+1. Configure explicit STOMP heartbeats on client and server.
+2. Replace fixed retry timing with exponential backoff plus jitter.
+3. Persist resumable round data: round id, start time, deadline, track, options, answers, and scores.
+4. Add a REST or WebSocket snapshot endpoint for authoritative recovery.
+5. Persist the player token and room code through a deliberate, reviewed client mechanism.
+6. Add integration tests for reconnect before/after timeout and backend restart.
+7. Move to an external broker and coordinated scheduling before running multiple backend instances.
 
-1. Add explicit STOMP heartbeat settings on both client and server.
-2. Replace fixed 5-second reconnect with exponential backoff plus jitter.
-3. Persist enough round state to resume after backend restart: current round id, start time, deadline, selected track, options, submitted answers, and scores.
-4. Add a REST or WebSocket snapshot endpoint that lets a reconnecting client fetch the authoritative room/game state.
-5. Store player token and room code in a deliberate client persistence layer if reload recovery is required.
-6. Add integration tests for disconnect, reconnect within 60 seconds, reconnect after timeout, and backend restart behavior.
-7. Consider an external broker if this grows beyond a single backend instance.
+> The current behavior is intentionally documented rather than hidden: the reconnect window works for the portfolio use case, while restart-safe rounds and horizontal scaling remain clear next steps.
