@@ -62,21 +62,21 @@ public class DisconnectEventListener {
         if (state == null) return;
 
         if (room.isSoloRoom()) {
-            // Solo player has already disconnected - their WebSocket connection is gone,
+            // Solo player has already disconnected — their WebSocket connection is gone,
             // so a GameOverMessage would not be delivered. Just clean up Redis.
-            log.info("Solo player {} disconnected from room {} - cleaning up immediately",
+            log.info("Solo player {} disconnected from room {} — cleaning up immediately",
                 playerToken, roomCode);
             gameRedisService.clearGameData(roomCode);
             return;
         }
 
-        log.info("Player {} disconnected from room {} - starting {}-second rejoin window",
+        log.info("Player {} disconnected from room {} — starting {}-second rejoin window",
             playerToken, roomCode, REJOIN_TIMEOUT_SECONDS);
         gameRedisService.markDisconnected(roomCode, playerToken);
 
         timerExecutor.schedule(() -> {
             if (gameRedisService.isDisconnected(roomCode, playerToken)) {
-                log.info("Player {} did not rejoin room {} - triggering game over", playerToken, roomCode);
+                log.info("Player {} did not rejoin room {} — triggering game over", playerToken, roomCode);
                 sendGameOverDueToDisconnect(roomCode, room, playerToken);
             }
         }, REJOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -84,7 +84,7 @@ public class DisconnectEventListener {
 
     private void sendGameOverDueToDisconnect(String roomCode, Room room, String disconnectedToken) {
         if (room.isSoloRoom()) {
-            log.warn("sendGameOverDueToDisconnect called for solo room {} - skipping", roomCode);
+            log.warn("sendGameOverDueToDisconnect called for solo room {} — skipping", roomCode);
             return;
         }
         List<Player> players = playerRepository.findByRoomId(room.getId());

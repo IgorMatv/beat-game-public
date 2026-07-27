@@ -2,7 +2,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/beatgame}
     username: ${SPRING_DATASOURCE_USERNAME:beatgame}
-    password: ${SPRING_DATASOURCE_PASSWORD:change-me}
+    password: ${SPRING_DATASOURCE_PASSWORD:secret}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -35,9 +35,9 @@ itunes:
   api:
     base-url: ${ITUNES_API_BASE_URL:https://itunes.apple.com}
 
-allowed-origins: ${ALLOWED_ORIGINS:http://localhost,http://localhost:5173}
+allowed-origins: ${ALLOWED_ORIGINS:http://localhost,http://localhost:5173,https://commodities-makes-marathon-chance.trycloudflare.com}
 
 admin:
-  token: ${ADMIN_TOKEN}
+  token: ${ADMIN_TOKEN:12345}
 
 debug: false

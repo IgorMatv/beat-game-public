@@ -43,7 +43,7 @@ services:
       DEEZER_API_BASE_URL: ${DEEZER_API_BASE_URL}
       ITUNES_API_BASE_URL: ${ITUNES_API_BASE_URL}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-12345}
     networks: [internal]
     depends_on:
       postgres:

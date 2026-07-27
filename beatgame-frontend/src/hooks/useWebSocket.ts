@@ -7,7 +7,7 @@ import type { RoundStartMessage, RoundResultMessage, GameOverMessage, RoomStateM
 // VITE_API_BASE_URL must use https:// in production to avoid mixed-content blocking.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
-// Backend sends no "type" field - detect message shape by unique field presence on both topics.
+// Backend sends no "type" field — detect message shape by unique field presence on both topics.
 function isRoundStart(m: unknown): m is RoundStartMessage {
   return typeof m === 'object' && m !== null && 'roundNumber' in m && 'trackId' in m && 'options' in m && 'previewUrl' in m
 }

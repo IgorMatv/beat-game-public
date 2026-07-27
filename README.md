@@ -18,7 +18,7 @@ Create a room, invite a friend, race against the clock to name the track before 
 
 ---
 
-> 📸 **Screenshots / live demo coming soon** — this is a portfolio-facing copy of a private project, currently being prepared for a public deployment.
+> 🎮 **Live demo:** [beatgame.app](https://beatgame.app) — password: `pass12345`. Screenshots coming soon.
 
 ## Table of Contents
 
@@ -150,6 +150,7 @@ For local frontend development, Vite proxies `/api` and `/ws` to the backend acc
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Backend/frontend structure, WebSocket destination map, runtime infra |
 | [Local Development](docs/LOCAL_DEVELOPMENT.md) | Running the stack locally outside Docker |
+| [AWS Deployment](docs/AWS_DEPLOYMENT.md) | How the live demo runs, and how a commit gets there |
 | [Observability](docs/OBSERVABILITY.md) | Prometheus metrics and Grafana dashboards |
 | [WebSocket Reliability](docs/WEBSOCKET_RELIABILITY.md) | Reconnect behavior, disconnect handling, known limits |
 | [Security Notes](docs/SECURITY.md) | Security-relevant configuration and assumptions |
