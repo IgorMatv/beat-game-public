@@ -88,20 +88,20 @@ public class DisconnectEventListener {
             return;
         }
         List<Player> players = playerRepository.findByRoomId(room.getId());
-        List<String> tokens = players.stream().map(Player::getPlayerToken).toList();
-        Map<String, Integer> scores = gameRedisService.getAllScores(roomCode, tokens);
+        Map<String, Integer> scoresByPlayerId = gameRedisService.getScoresByPlayerId(roomCode, players);
 
-        String winnerPlayerToken = tokens.stream()
-            .filter(t -> !t.equals(disconnectedToken))
+        String winnerPlayerId = players.stream()
+            .filter(p -> !p.getPlayerToken().equals(disconnectedToken))
             .findFirst()
+            .map(p -> String.valueOf(p.getId()))
             .orElse(null);
 
-        if (winnerPlayerToken == null) {
+        if (winnerPlayerId == null) {
             log.warn("No remaining player found to declare as winner in room {}", roomCode);
         }
 
         messagingTemplate.convertAndSend("/topic/game." + roomCode,
-            new GameOverMessage(scores, winnerPlayerToken));
+            new GameOverMessage(scoresByPlayerId, winnerPlayerId));
 
         gameRedisService.clearGameData(roomCode);
     }

@@ -6,12 +6,12 @@ import com.beatgame.track.Track;
 import com.beatgame.track.provider.genre.DeezerGenreMapper;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.Collections;
@@ -21,8 +21,6 @@ import java.util.List;
 public class DeezerProvider implements TrackProvider {
 
     private static final Logger log = LoggerFactory.getLogger(DeezerProvider.class);
-    private static final int DELAY_MS = 200;
-    private static final int MAX_RETRIES = 3;
 
     private final RestClient client;
     private final DeezerGenreMapper genreMapper;
@@ -32,9 +30,10 @@ public class DeezerProvider implements TrackProvider {
         this.genreMapper = genreMapper;
     }
 
+    @CircuitBreaker(name = "deezer")
+    @Retry(name = "deezer")
     public List<Track> fetchByArtist(String artistName, int limit, Genre genre) {
-        DeezerSearchResponse response = fetchWithRetry(
-            "/search?q=artist:%22{artist}%22&limit={limit}", artistName, limit);
+        DeezerSearchResponse response = fetchSearch("/search?q=artist:%22{artist}%22&limit={limit}", artistName, limit);
         if (response == null || response.data() == null) return Collections.emptyList();
         return response.data().stream()
             .filter(t -> t.preview() != null && !t.preview().isBlank())
@@ -43,11 +42,12 @@ public class DeezerProvider implements TrackProvider {
     }
 
     @Override
+    @CircuitBreaker(name = "deezer")
+    @Retry(name = "deezer")
     public List<Track> fetchByGenre(Genre genre, int limit, int offset) {
         if (genre == Genre.UKRAINIAN) return Collections.emptyList();
         String genreId = genreMapper.map(genre);
-        DeezerSearchResponse response = fetchWithRetry(
-            "/chart/{id}/tracks?limit={limit}&index={offset}", genreId, limit, offset);
+        DeezerSearchResponse response = fetchSearch("/chart/{id}/tracks?limit={limit}&index={offset}", genreId, limit, offset);
         if (response == null || response.data() == null) return Collections.emptyList();
         return response.data().stream()
             .filter(t -> t.preview() != null && !t.preview().isBlank())
@@ -56,8 +56,10 @@ public class DeezerProvider implements TrackProvider {
     }
 
     @Override
+    @CircuitBreaker(name = "deezer")
+    @Retry(name = "deezer")
     public List<Track> fetchByDecade(Decade decade, int limit, int offset) {
-        DeezerSearchResponse response = fetchWithRetry(
+        DeezerSearchResponse response = fetchSearch(
             "/search?q=year%3E%3D{from}%20year%3C%3D{to}&limit={limit}&index={offset}",
             decade.from, decade.to, limit, offset);
         if (response == null || response.data() == null) return Collections.emptyList();
@@ -68,47 +70,28 @@ public class DeezerProvider implements TrackProvider {
             .toList();
     }
 
+    @CircuitBreaker(name = "deezer", fallbackMethod = "fetchPreviewUrlFallback")
+    @Retry(name = "deezer", fallbackMethod = "fetchPreviewUrlFallback")
     public String fetchPreviewUrl(String externalId) {
-        int delay = DELAY_MS;
-        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            try {
-                DeezerTrackDto track = client.get()
-                    .uri("/track/{id}", externalId)
-                    .retrieve()
-                    .body(DeezerTrackDto.class);
-                if (track == null || track.preview() == null || track.preview().isBlank()) return null;
-                return track.preview();
-            } catch (HttpClientErrorException e) {
-                if (e.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS && attempt < MAX_RETRIES - 1) {
-                    sleep(delay);
-                    delay *= 2;
-                } else {
-                    log.warn("Failed to fetch preview URL for Deezer track {}: {}", externalId, e.getStatusCode());
-                    return null;
-                }
-            }
-        }
+        DeezerTrackDto track = client.get()
+            .uri("/track/{id}", externalId)
+            .retrieve()
+            .body(DeezerTrackDto.class);
+        if (track == null || track.preview() == null || track.preview().isBlank()) return null;
+        return track.preview();
+    }
+
+    @SuppressWarnings("unused") // invoked reflectively by resilience4j as fetchPreviewUrl's fallback
+    private String fetchPreviewUrlFallback(String externalId, Throwable t) {
+        log.warn("Failed to fetch preview URL for Deezer track {}: {}", externalId, t.toString());
         return null;
     }
 
-    private DeezerSearchResponse fetchWithRetry(String uriTemplate, Object... uriVars) {
-        int delay = DELAY_MS;
-        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            sleep(delay);
-            try {
-                return client.get()
-                    .uri(uriTemplate, uriVars)
-                    .retrieve()
-                    .body(DeezerSearchResponse.class);
-            } catch (HttpClientErrorException e) {
-                if (e.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS && attempt < MAX_RETRIES - 1) {
-                    delay *= 2;
-                } else {
-                    throw e;
-                }
-            }
-        }
-        return null;
+    private DeezerSearchResponse fetchSearch(String uriTemplate, Object... uriVars) {
+        return client.get()
+            .uri(uriTemplate, uriVars)
+            .retrieve()
+            .body(DeezerSearchResponse.class);
     }
 
     private boolean isInDecade(DeezerTrackDto t, Decade decade) {
@@ -139,14 +122,6 @@ public class DeezerProvider implements TrackProvider {
             } catch (Exception ignored) {}
         }
         return track;
-    }
-
-    private void sleep(int ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

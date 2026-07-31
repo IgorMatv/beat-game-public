@@ -65,9 +65,10 @@ export default function SoloConfig() {
         body: JSON.stringify({ playerName: playerName.trim() }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: { roomCode: string; playerToken: string } = await res.json()
+      const data: { roomCode: string; playerToken: string; playerId: number } = await res.json()
       store.setPlayerName(playerName.trim())
       store.setPlayerToken(data.playerToken)
+      store.setPlayerId(String(data.playerId))
       store.setRoomCode(data.roomCode)
       store.setGameMode('solo')
       store.updateGameConfig({ rounds, category, categoryType })

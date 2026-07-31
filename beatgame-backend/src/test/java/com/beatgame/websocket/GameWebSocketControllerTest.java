@@ -74,11 +74,39 @@ class GameWebSocketControllerTest {
     }
 
     @Test
-    void handleRejoin_delegatesToGameService() {
-        RejoinMessage msg = new RejoinMessage("ABC123", "tok");
+    void handleSubscribed_delegatesToRoundServiceWithGameInProgressFlag() {
+        JoinAckMessage msg = new JoinAckMessage("ABC123");
+        Room room = new Room();
+        room.setMaxPlayers((short) 2);
+        room.setStatus(RoomStatus.IN_GAME);
+        ReflectionTestUtils.setField(room, "id", 1L);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
 
-        controller.handleRejoin(msg);
+        controller.handleSubscribed(msg, headerWith("tok"));
 
-        verify(gameService).handleRejoin(msg);
+        verify(roundService).handleJoinAck("ABC123", "tok", true, 2);
+    }
+
+    @Test
+    void handleSubscribed_roomStillWaiting_passesGameInProgressFalse() {
+        JoinAckMessage msg = new JoinAckMessage("ABC123");
+        Room room = new Room();
+        room.setMaxPlayers((short) 2);
+        room.setStatus(RoomStatus.WAITING);
+        ReflectionTestUtils.setField(room, "id", 1L);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
+
+        controller.handleSubscribed(msg, headerWith("tok"));
+
+        verify(roundService).handleJoinAck("ABC123", "tok", false, 2);
+    }
+
+    @Test
+    void handleSync_delegatesToGameService() {
+        GameSyncMessage msg = new GameSyncMessage("ABC123");
+
+        controller.handleSync(msg);
+
+        verify(gameService).handleSync("ABC123");
     }
 }

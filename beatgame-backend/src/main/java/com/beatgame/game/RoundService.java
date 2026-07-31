@@ -23,8 +23,9 @@ import java.util.concurrent.*;
 public class RoundService {
 
     private static final Logger log = LoggerFactory.getLogger(RoundService.class);
-    private static final int ROUND_SECONDS = 15;
+    static final int ROUND_SECONDS = 15;
     private static final int READY_TIMEOUT_SECONDS = 30;
+    private static final int ROUND1_JOIN_TIMEOUT_SECONDS = 5;
 
     private final GameRedisService gameRedisService;
     private final GameSessionRepository gameSessionRepository;
@@ -107,8 +108,7 @@ public class RoundService {
                 if (room == null) return null;
 
                 List<Player> players = playerRepository.findByRoomId(room.getId());
-                List<String> tokens = players.stream().map(Player::getPlayerToken).toList();
-                Map<String, Integer> scores = gameRedisService.getAllScores(roomCode, tokens);
+                Map<String, Integer> scoresByPlayerId = gameRedisService.getScoresByPlayerId(roomCode, players);
 
                 long correctTrackId = state.trackIds()[round - 1];
                 Track correctTrack = trackRepository.findById(correctTrackId)
@@ -116,10 +116,10 @@ public class RoundService {
                 String correctAnswer = correctTrack.getTitle() + " — " + correctTrack.getArtist();
 
                 messagingTemplate.convertAndSend("/topic/game." + roomCode,
-                    new RoundResultMessage(round, correctTrackId, correctAnswer, scores));
+                    new RoundResultMessage(round, correctTrackId, correctAnswer, scoresByPlayerId));
 
                 if (round >= state.totalRounds()) {
-                    endGame(roomCode, room, scores, tokens);
+                    endGame(roomCode, room, scoresByPlayerId);
                 } else {
                     gameRedisService.setCurrentRound(roomCode, round + 1);
                     scheduleReadyTimeout(roomCode, round + 1, maxPlayers);
@@ -133,16 +133,53 @@ public class RoundService {
 
     public void handleReady(ReadyMessage msg, String playerToken, int maxPlayers) {
         int currentRound = gameRedisService.getCurrentRound(msg.roomCode());
+        if (!gameRedisService.markReady(msg.roomCode(), currentRound, playerToken)) return;
         long readyCount = gameRedisService.incrementReady(msg.roomCode(), currentRound);
         if (readyCount >= maxPlayers) {
             startNextRound(msg.roomCode(), currentRound, maxPlayers);
         }
     }
 
-    private void startNextRound(String roomCode, int round, int maxPlayers) {
+    // Gates round 1's broadcast on every current player actually being subscribed to
+    // /topic/game.{roomCode} — fixes the fresh-join race where a guest who joins right
+    // before the host clicks Start can miss round 1 entirely (issue #34). Solo rooms
+    // (maxPlayers <= 1) skip the gate and start immediately, matching prior behavior.
+    public void armRound1(String roomCode, int maxPlayers) {
+        if (maxPlayers <= 1 || gameRedisService.getJoinAckCount(roomCode) >= maxPlayers) {
+            startNextRound(roomCode, 1, maxPlayers);
+        } else {
+            scheduleRound1JoinTimeout(roomCode, maxPlayers);
+        }
+    }
+
+    // Called when a client confirms it has subscribed to the game topic — i.e. on every
+    // successful (re)connect. Always clears any stale disconnect flag for this player first
+    // (issue #36: without this, a player who merely had a brief network blip and reconnected
+    // could still be incorrectly forfeited later by DisconnectEventListener's 60s timer, since
+    // nothing else ever cleared it). The round-1 arming below only acts once the game has
+    // actually started (gameInProgress) — otherwise a room where every player happens to
+    // connect before the host clicks Start would consume round 1's idempotency claim early
+    // and the real startGame() broadcast would silently no-op.
+    public void handleJoinAck(String roomCode, String playerToken, boolean gameInProgress, int maxPlayers) {
+        gameRedisService.clearDisconnect(roomCode, playerToken);
+        long count = gameRedisService.incrementJoinAck(roomCode);
+        if (gameInProgress && count >= maxPlayers) {
+            startNextRound(roomCode, 1, maxPlayers);
+        }
+    }
+
+    private void scheduleRound1JoinTimeout(String roomCode, int maxPlayers) {
+        ScheduledFuture<?> future = timerExecutor.schedule(
+            () -> startNextRound(roomCode, 1, maxPlayers),
+            ROUND1_JOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        pendingTimers.put(roomCode + ":ready:1", future);
+    }
+
+    void startNextRound(String roomCode, int round, int maxPlayers) {
         try {
             if (!gameRedisService.claimRoundStart(roomCode, round)) return;
             RoundStartMessage msg = gameService.buildRoundStartForRound(roomCode, round);
+            gameRedisService.markRoundStarted(roomCode, round);
             messagingTemplate.convertAndSend("/topic/game." + roomCode, msg);
             scheduleRoundTimeout(roomCode, round, maxPlayers);
         } catch (Exception e) {
@@ -167,19 +204,20 @@ public class RoundService {
         });
     }
 
-    private void endGame(String roomCode, Room room, Map<String, Integer> scores, List<String> tokens) {
+    private void endGame(String roomCode, Room room, Map<String, Integer> scoresByPlayerId) {
         cancelAllTimersForRoom(roomCode);
 
-        String winnerPlayerToken = tokens.stream()
-            .max(Comparator.comparingInt(t -> scores.getOrDefault(t, 0)))
+        String winnerPlayerId = scoresByPlayerId.entrySet().stream()
+            .max(Map.Entry.comparingByValue())
+            .map(Map.Entry::getKey)
             .orElse(null);
 
-        if (winnerPlayerToken == null) {
-            log.warn("No winner found for room {} — token list was empty", roomCode);
+        if (winnerPlayerId == null) {
+            log.warn("No winner found for room {} — scores map was empty", roomCode);
         }
 
         // Delay so clients can see the last round result before navigating to game over
-        GameOverMessage gameOverMsg = new GameOverMessage(scores, winnerPlayerToken);
+        GameOverMessage gameOverMsg = new GameOverMessage(scoresByPlayerId, winnerPlayerId);
         ScheduledFuture<?> future = timerExecutor.schedule(
             () -> messagingTemplate.convertAndSend("/topic/game." + roomCode, gameOverMsg),
             4, TimeUnit.SECONDS);

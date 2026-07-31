@@ -45,9 +45,10 @@ export default function Home() {
         body: JSON.stringify({ playerName: name.trim() }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: { roomCode: string; playerToken: string } = await res.json()
+      const data: { roomCode: string; playerToken: string; playerId: number } = await res.json()
       store.setPlayerName(name.trim())
       store.setPlayerToken(data.playerToken)
+      store.setPlayerId(String(data.playerId))
       store.setRoomCode(data.roomCode)
       store.setIsHost(true)
       store.setGameMode('multi')
@@ -81,9 +82,10 @@ export default function Home() {
         body: JSON.stringify({ playerName: name.trim() }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: { playerToken: string; players: { id: number; name: string; isHost: boolean }[] } = await res.json()
+      const data: { playerToken: string; playerId: number; players: { id: number; name: string; isHost: boolean }[] } = await res.json()
       store.setPlayerName(name.trim())
       store.setPlayerToken(data.playerToken)
+      store.setPlayerId(String(data.playerId))
       store.setRoomCode(code)
       store.setIsHost(false)
       store.setGameMode('multi')

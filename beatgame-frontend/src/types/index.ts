@@ -28,6 +28,7 @@ export interface RoundState {
   options: string[]         // ["Title — Artist", ...]
   roundNumber: number
   totalRounds: number
+  remainingSeconds: number
 }
 
 export type Phase =
@@ -49,13 +50,15 @@ export interface RoundStartMessage {
   trackId: number
   previewUrl: string | null
   options: string[]
+  remainingSeconds: number
+  scores: Record<string, number>
 }
 
 export interface RoundResultMessage {
   roundNumber: number
   correctTrackId: number
   correctAnswer: string         // "Title — Artist"
-  scores: Record<string, number>  // playerToken → cumulative score
+  scores: Record<string, number>  // playerId → cumulative score
 }
 
 export interface RoomStateMessage {
@@ -71,11 +74,13 @@ export interface RoomConfigMessage {
 }
 
 export interface GameOverMessage {
-  scores: Record<string, number>   // playerToken → final score
-  winnerPlayerToken: string | null
+  scores: Record<string, number>   // playerId → final score
+  winnerPlayerId: string | null
 }
 
 export interface MusicPausedMessage { paused: boolean }
+
+export interface StartGameErrorMessage { reason: string }
 
 // ── WebSocket message DTOs (Client → Server) ────────────
 
@@ -102,7 +107,3 @@ export interface StartGamePayload {
   categoryType: CategoryType
 }
 
-export interface RejoinPayload {
-  roomCode: string
-  playerToken: string
-}

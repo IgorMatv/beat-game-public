@@ -22,6 +22,7 @@ public class RoomService {
     private static final String CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final int CODE_LENGTH = 6;
     private static final int MAX_RETRIES = 10;
+    private static final int MAX_PLAYER_NAME_LENGTH = 16; // matches the frontend input's maxLength
 
     private final RoomRepository roomRepository;
     private final PlayerService playerService;
@@ -37,20 +38,23 @@ public class RoomService {
     }
 
     public CreateRoomResponse createRoom(String playerName) {
+        validatePlayerName(playerName);
         Room room = buildRoom((short) 2);
         roomRepository.save(room);
         Player host = playerService.createPlayer(room, playerName, true);
-        return new CreateRoomResponse(room.getCode(), host.getPlayerToken());
+        return new CreateRoomResponse(room.getCode(), host.getPlayerToken(), host.getId());
     }
 
     public CreateRoomResponse createSoloRoom(String playerName) {
+        validatePlayerName(playerName);
         Room room = buildRoom((short) 1);
         roomRepository.save(room);
         Player player = playerService.createPlayer(room, playerName, true);
-        return new CreateRoomResponse(room.getCode(), player.getPlayerToken());
+        return new CreateRoomResponse(room.getCode(), player.getPlayerToken(), player.getId());
     }
 
     public JoinRoomResponse joinRoom(String code, String playerName) {
+        validatePlayerName(playerName);
         Room room = roomRepository.findByCode(code)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
 
@@ -67,7 +71,7 @@ public class RoomService {
         List<PlayerInfo> players = playerRepository.findByRoomId(room.getId()).stream()
                 .map(p -> new PlayerInfo(p.getId(), p.getName(), p.isHost()))
                 .toList();
-        return new JoinRoomResponse(player.getPlayerToken(), players);
+        return new JoinRoomResponse(player.getPlayerToken(), player.getId(), players);
     }
 
     @Transactional(readOnly = true)
@@ -85,6 +89,16 @@ public class RoomService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         long count = playerRepository.countByRoomId(room.getId());
         return new RoomInfoResponse(room.getCode(), room.getStatus().name(), (int) count, room.getMaxPlayers());
+    }
+
+    private void validatePlayerName(String playerName) {
+        if (playerName == null || playerName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Player name must not be blank");
+        }
+        if (playerName.length() > MAX_PLAYER_NAME_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Player name must be at most " + MAX_PLAYER_NAME_LENGTH + " characters");
+        }
     }
 
     private Room buildRoom(short maxPlayers) {

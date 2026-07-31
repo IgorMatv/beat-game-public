@@ -65,6 +65,24 @@ class RoomServiceTest {
     }
 
     @Test
+    void createRoom_throwsBadRequest_whenNameBlank() {
+        assertThatThrownBy(() -> roomService.createRoom("   "))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(roomRepository);
+    }
+
+    @Test
+    void createRoom_throwsBadRequest_whenNameTooLong() {
+        assertThatThrownBy(() -> roomService.createRoom("A".repeat(17)))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(roomRepository);
+    }
+
+    @Test
     void createRoom_setsMaxPlayers2() {
         when(roomRepository.existsByCode(any())).thenReturn(false);
         when(roomRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -84,6 +102,7 @@ class RoomServiceTest {
         CreateRoomResponse response = roomService.createRoom("Alice");
 
         assertThat(response.playerToken()).isEqualTo("host-tok");
+        assertThat(response.playerId()).isEqualTo(42L);
         verify(playerService).createPlayer(any(), eq("Alice"), eq(true));
     }
 
@@ -101,6 +120,7 @@ class RoomServiceTest {
     private Player playerWithToken(String token) {
         Player p = new Player();
         p.setPlayerToken(token);
+        org.springframework.test.util.ReflectionTestUtils.setField(p, "id", 42L);
         return p;
     }
 
@@ -114,7 +134,26 @@ class RoomServiceTest {
         JoinRoomResponse response = roomService.joinRoom("ABC123", "Bob");
 
         assertThat(response.playerToken()).isEqualTo("guest-tok");
+        assertThat(response.playerId()).isEqualTo(42L);
         verify(playerService).createPlayer(any(), eq("Bob"), eq(false));
+    }
+
+    @Test
+    void joinRoom_throwsBadRequest_whenNameBlank() {
+        assertThatThrownBy(() -> roomService.joinRoom("ABC123", ""))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(roomRepository);
+    }
+
+    @Test
+    void joinRoom_throwsBadRequest_whenNameTooLong() {
+        assertThatThrownBy(() -> roomService.joinRoom("ABC123", "B".repeat(17)))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(roomRepository);
     }
 
     @Test

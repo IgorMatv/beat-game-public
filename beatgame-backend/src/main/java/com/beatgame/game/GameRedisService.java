@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.player.Player;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -75,9 +76,62 @@ public class GameRedisService {
         return scores;
     }
 
+    // Broadcast-safe variant of getAllScores — keys by playerId instead of the raw
+    // playerToken, since anything sent to /topic/... is visible to every player in the
+    // room (issue #24: a leaked token can be used to hijack that player's session).
+    public Map<String, Integer> getScoresByPlayerId(String roomCode, List<Player> players) {
+        Map<String, Integer> scores = new LinkedHashMap<>();
+        for (Player p : players) {
+            scores.put(String.valueOf(p.getId()), getScore(roomCode, p.getPlayerToken()));
+        }
+        return scores;
+    }
+
+    public boolean markReady(String roomCode, int round, String playerToken) {
+        Boolean result = redisTemplate.opsForValue()
+            .setIfAbsent("readied:" + roomCode + ":" + round + ":" + playerToken, "1");
+        return Boolean.TRUE.equals(result);
+    }
+
     public long incrementReady(String roomCode, int round) {
         Long result = redisTemplate.opsForValue().increment("ready:" + roomCode + ":" + round);
         return result == null ? 0 : result;
+    }
+
+    public void markRoundStarted(String roomCode, int round) {
+        redisTemplate.opsForValue().set("roundstartedat:" + roomCode + ":" + round, String.valueOf(System.currentTimeMillis()));
+    }
+
+    public int getRoundRemainingSeconds(String roomCode, int round, int roundSeconds) {
+        String val = redisTemplate.opsForValue().get("roundstartedat:" + roomCode + ":" + round);
+        if (val == null) return roundSeconds;
+        long startedAt = Long.parseLong(val);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        int remaining = roundSeconds - (int) (elapsedMs / 1000);
+        return Math.max(remaining, 0);
+    }
+
+    // Preview URLs are resolved once, up front, for every track in the game (see
+    // GameService.startGame) rather than live per round-start — a slow/dead provider
+    // then only delays the "waiting to start" screen, not every round transition
+    // (issue #5). Room-scoped so a rematch in the same room starts with a clean cache.
+    public void storePreviewUrls(String roomCode, Map<String, String> previewsByExternalId) {
+        if (previewsByExternalId.isEmpty()) return;
+        redisTemplate.<String, String>opsForHash().putAll("previews:" + roomCode, previewsByExternalId);
+    }
+
+    public String getPreviewUrl(String roomCode, String externalId) {
+        return redisTemplate.<String, String>opsForHash().get("previews:" + roomCode, externalId);
+    }
+
+    public long incrementJoinAck(String roomCode) {
+        Long result = redisTemplate.opsForValue().increment("joinack:" + roomCode);
+        return result == null ? 0 : result;
+    }
+
+    public long getJoinAckCount(String roomCode) {
+        String val = redisTemplate.opsForValue().get("joinack:" + roomCode);
+        return val == null ? 0 : Long.parseLong(val);
     }
 
     public boolean claimRoundStart(String roomCode, int round) {
@@ -121,6 +175,10 @@ public class GameRedisService {
         deleteByPattern("answered:" + roomCode + ":*");
         deleteByPattern("answers:" + roomCode + ":*");
         deleteByPattern("ready:" + roomCode + ":*");
+        deleteByPattern("readied:" + roomCode + ":*");
+        deleteByPattern("roundstartedat:" + roomCode + ":*");
+        redisTemplate.delete("previews:" + roomCode);
+        redisTemplate.delete("joinack:" + roomCode);
         deleteByPattern("roundstarted:" + roomCode + ":*");
         deleteByPattern("roundclosed:" + roomCode + ":*");
         deleteByPattern("correctIndex:" + roomCode + ":*");

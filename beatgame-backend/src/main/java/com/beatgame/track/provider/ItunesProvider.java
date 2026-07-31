@@ -5,12 +5,9 @@ import com.beatgame.track.Genre;
 import com.beatgame.track.Track;
 import com.beatgame.track.provider.genre.ItunesGenreMapper;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.Collections;
@@ -18,10 +15,6 @@ import java.util.List;
 
 @Component("itunesProvider")
 public class ItunesProvider implements TrackProvider {
-
-    private static final Logger log = LoggerFactory.getLogger(ItunesProvider.class);
-    private static final int DELAY_MS = 1000;
-    private static final int MAX_RETRIES = 3;
 
     private final RestClient client;
     private final ItunesGenreMapper genreMapper;
@@ -32,11 +25,12 @@ public class ItunesProvider implements TrackProvider {
     }
 
     @Override
+    @Retry(name = "itunes")
     public List<Track> fetchByGenre(Genre genre, int limit, int offset) {
         if (genre == Genre.UKRAINIAN) return Collections.emptyList();
         List<String> terms = genreMapper.mapAll(genre);
         String term = terms.get((offset / limit) % terms.size());
-        ItunesSearchResponse response = fetchWithRetry(
+        ItunesSearchResponse response = fetchSearch(
             "/search?term={genre}&media=music&entity=song&attribute=genreIndex&limit={limit}&offset=0",
             term, limit);
         if (response == null || response.results() == null) return Collections.emptyList();
@@ -47,8 +41,9 @@ public class ItunesProvider implements TrackProvider {
     }
 
     @Override
+    @Retry(name = "itunes")
     public List<Track> fetchByDecade(Decade decade, int limit, int offset) {
-        ItunesSearchResponse response = fetchWithRetry(
+        ItunesSearchResponse response = fetchSearch(
             "/search?term=music&media=music&entity=song&limit={limit}&offset={offset}",
             limit, offset);
         if (response == null || response.results() == null) return Collections.emptyList();
@@ -59,25 +54,11 @@ public class ItunesProvider implements TrackProvider {
             .toList();
     }
 
-    private ItunesSearchResponse fetchWithRetry(String uriTemplate, Object... uriVars) {
-        int delay = DELAY_MS;
-        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            sleep(delay);
-            try {
-                return client.get()
-                    .uri(uriTemplate, uriVars)
-                    .retrieve()
-                    .body(ItunesSearchResponse.class);
-            } catch (HttpClientErrorException e) {
-                if (e.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS && attempt < MAX_RETRIES - 1) {
-                    log.warn("iTunes 429 on attempt {}, retrying after {}ms", attempt + 1, delay * 2);
-                    delay *= 2;
-                } else {
-                    throw e;
-                }
-            }
-        }
-        return null;
+    private ItunesSearchResponse fetchSearch(String uriTemplate, Object... uriVars) {
+        return client.get()
+            .uri(uriTemplate, uriVars)
+            .retrieve()
+            .body(ItunesSearchResponse.class);
     }
 
     private boolean isValidPreview(String url) {
@@ -113,14 +94,6 @@ public class ItunesProvider implements TrackProvider {
             } catch (Exception ignored) {}
         }
         return track;
-    }
-
-    private void sleep(int ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

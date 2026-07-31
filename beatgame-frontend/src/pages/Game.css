@@ -143,6 +143,11 @@
   box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 70%, transparent);
   animation: pulse 1.2s infinite; /* pulse keyframe defined in index.css */
 }
+.gm-pulse.muted {
+  background: var(--fg-mute);
+  box-shadow: none;
+  animation: none;
+}
 
 /* ── cover ────────────────────────────────────────────── */
 .gm-cover-wrap {
@@ -188,6 +193,14 @@
 
 /* ── waveform progress ─────────────────────────────────── */
 .gm-progress { display: grid; gap: 6px; }
+.gm-no-preview {
+  height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .1em;
+  color: var(--fg-mute);
+}
 .gm-wave-bars {
   height: 36px;
   display: flex; align-items: center; gap: 2px;

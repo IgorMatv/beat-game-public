@@ -4,6 +4,7 @@ import type { Player, LobbyPlayer, GameConfig, CategoryType, RoundState, Phase, 
 interface GameStore {
   playerName: string
   playerToken: string
+  playerId: string
   roomCode: string
   gameMode: 'solo' | 'multi'
   players: Player[]
@@ -18,9 +19,11 @@ interface GameStore {
   lastRoundResult: RoundResultMessage | null
   lastGameOver: GameOverMessage | null
   musicPaused: boolean
+  startGameError: string | null
 
   setPlayerName(name: string): void
   setPlayerToken(token: string): void
+  setPlayerId(id: string): void
   setRoomCode(code: string): void
   setIsHost(v: boolean): void
   setGameMode(m: 'solo' | 'multi'): void
@@ -34,6 +37,7 @@ interface GameStore {
   applyGameOver(msg: GameOverMessage): void
   setHasAnswered(v: boolean): void
   setMusicPaused(paused: boolean): void
+  setStartGameError(reason: string | null): void
   resetForRematch(): void
   reset(): void
 }
@@ -57,11 +61,16 @@ function getOrCreateToken(): string {
   return token
 }
 
+function getStoredPlayerId(): string {
+  return localStorage.getItem('playerId') ?? ''
+}
+
 const DEFAULT_CONFIG: GameConfig = Object.freeze({ rounds: 10, category: 'POP', categoryType: 'GENRE' })
 
 export const useGameStore = create<GameStore>((set) => ({
   playerName: '',
   playerToken: getOrCreateToken(),
+  playerId: getStoredPlayerId(),
   roomCode: '',
   gameMode: 'multi',
   players: [],
@@ -76,11 +85,16 @@ export const useGameStore = create<GameStore>((set) => ({
   lastRoundResult: null,
   lastGameOver: null,
   musicPaused: false,
+  startGameError: null,
 
   setPlayerName: (name) => set({ playerName: name }),
   setPlayerToken: (token) => {
     localStorage.setItem('playerToken', token)
     set({ playerToken: token })
+  },
+  setPlayerId: (id) => {
+    localStorage.setItem('playerId', id)
+    set({ playerId: id })
   },
   setRoomCode: (code) => set({ roomCode: code }),
   setIsHost: (v) => set({ isHost: v }),
@@ -96,7 +110,9 @@ export const useGameStore = create<GameStore>((set) => ({
       options: msg.options,
       roundNumber: msg.roundNumber,
       totalRounds: msg.totalRounds,
+      remainingSeconds: msg.remainingSeconds,
     },
+    scores: msg.scores,
     hasAnswered: false,
     phase: 'playing',
     musicPaused: false,
@@ -126,6 +142,7 @@ export const useGameStore = create<GameStore>((set) => ({
 
   setHasAnswered: (v) => set({ hasAnswered: v }),
   setMusicPaused: (paused) => set({ musicPaused: paused }),
+  setStartGameError: (reason) => set({ startGameError: reason }),
 
   resetForRematch: () => set({
     gameConfig: { ...DEFAULT_CONFIG },
@@ -137,6 +154,7 @@ export const useGameStore = create<GameStore>((set) => ({
     lastRoundResult: null,
     lastGameOver: null,
     players: [],
+    startGameError: null,
   }),
 
   reset: () => set({
@@ -155,5 +173,6 @@ export const useGameStore = create<GameStore>((set) => ({
     lastRoundResult: null,
     lastGameOver: null,
     musicPaused: false,
+    startGameError: null,
   }),
 }))

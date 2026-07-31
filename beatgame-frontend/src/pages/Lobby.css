@@ -387,3 +387,12 @@
   pointer-events: none;
 }
 .lb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.lb-toast.error {
+  border-color: #e5484d;
+  color: #e5484d;
+  max-width: 320px;
+  text-align: center;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}

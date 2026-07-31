@@ -29,20 +29,21 @@ class RoomControllerTest {
     @Test
     void createRoom_returns201WithRoomCodeAndPlayerToken() throws Exception {
         when(roomService.createRoom("Alice"))
-            .thenReturn(new CreateRoomResponse("ABC123", "tok-uuid"));
+            .thenReturn(new CreateRoomResponse("ABC123", "tok-uuid", 1L));
 
         mockMvc.perform(post("/api/rooms")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"playerName\":\"Alice\"}"))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.roomCode").value("ABC123"))
-            .andExpect(jsonPath("$.playerToken").value("tok-uuid"));
+            .andExpect(jsonPath("$.playerToken").value("tok-uuid"))
+            .andExpect(jsonPath("$.playerId").value(1));
     }
 
     @Test
     void createSoloRoom_returns201WithRoomCode() throws Exception {
         when(roomService.createSoloRoom("Alice"))
-            .thenReturn(new CreateRoomResponse("XY1234", "tok-solo"));
+            .thenReturn(new CreateRoomResponse("XY1234", "tok-solo", 1L));
 
         mockMvc.perform(post("/api/rooms/solo")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -77,7 +78,7 @@ class RoomControllerTest {
     @Test
     void joinRoom_returnsPlayerToken() throws Exception {
         when(roomService.joinRoom("ABC123", "Bob"))
-            .thenReturn(new JoinRoomResponse("guest-tok", List.of(
+            .thenReturn(new JoinRoomResponse("guest-tok", 2L, List.of(
                 new PlayerInfo(1L, "Alice", true),
                 new PlayerInfo(2L, "Bob", false)
             )));
@@ -86,7 +87,8 @@ class RoomControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"playerName\":\"Bob\"}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.playerToken").value("guest-tok"));
+            .andExpect(jsonPath("$.playerToken").value("guest-tok"))
+            .andExpect(jsonPath("$.playerId").value(2));
     }
 
     @Test
@@ -113,7 +115,7 @@ class RoomControllerTest {
 
     @Test
     void createRoom_returns429AfterExceedingRateLimit() throws Exception {
-        when(roomService.createRoom(any())).thenReturn(new CreateRoomResponse("X", "tok"));
+        when(roomService.createRoom(any())).thenReturn(new CreateRoomResponse("X", "tok", 1L));
 
         // Use a distinct IP so this test's bucket is isolated from other tests
         String ip = "10.0.1.1";
@@ -136,7 +138,7 @@ class RoomControllerTest {
     @Test
     void joinRoom_returns429AfterExceedingRateLimit() throws Exception {
         when(roomService.joinRoom(any(), any()))
-            .thenReturn(new JoinRoomResponse("tok", List.of()));
+            .thenReturn(new JoinRoomResponse("tok", 1L, List.of()));
 
         // Use a distinct IP so this test's bucket is isolated from other tests
         String ip = "10.0.1.2";

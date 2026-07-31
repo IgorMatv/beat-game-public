@@ -27,18 +27,19 @@ export default function Game() {
   const { connect, disconnect, sendAnswer, sendReady, sendStart, sendPause } = useWebSocket()
 
   const playerToken = store.playerToken
+  const playerId = store.playerId
   const currentRound = store.currentRound
   const phase = store.phase
   const isHost = store.isHost
   const musicPaused = store.musicPaused
 
   // Scoreboard
-  const myScore = store.scores[playerToken] ?? 0
+  const myScore = store.scores[playerId] ?? 0
   const opponentPlayer = store.gameMode === 'multi'
     ? store.lobbyPlayers.find(p => p.isHost !== isHost) ?? null
     : null
-  const opponentToken = Object.keys(store.scores).find(t => t !== playerToken) ?? null
-  const opponentScore = opponentToken ? (store.scores[opponentToken] ?? 0) : 0
+  const opponentId = Object.keys(store.scores).find(id => id !== playerId) ?? null
+  const opponentScore = opponentId ? (store.scores[opponentId] ?? 0) : 0
 
   // Local answer selection
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -97,12 +98,12 @@ export default function Game() {
   useEffect(() => {
     if (phase !== 'playing') return
     roundStartTimeRef.current = Date.now()
-    setTimeLeft(TOTAL_SECS)
+    setTimeLeft(currentRound?.remainingSeconds ?? TOTAL_SECS)
     const id = setInterval(() => {
       setTimeLeft(t => (t <= 1 ? (clearInterval(id), 0) : t - 1))
     }, 1000)
     return () => clearInterval(id)
-  }, [phase, currentRound?.roundNumber])
+  }, [phase, currentRound?.roundNumber, currentRound?.remainingSeconds])
 
   // Reset selection when new round starts — useLayoutEffect prevents the one-frame flash
   useLayoutEffect(() => {
@@ -173,6 +174,7 @@ export default function Game() {
 
   // Cover reveal
   const revealed = inReveal
+  const hasPreview = !!currentRound?.previewUrl
 
   // Audio elapsed for display
   const elapsed = Math.round(playedFraction * 30)
@@ -241,48 +243,54 @@ export default function Game() {
         <div className="gm-audio">
           <div className="gm-audio-head">
             <div className="gm-live">
-              <span className="gm-pulse" />
-              Now playing
+              <span className={`gm-pulse${hasPreview ? '' : ' muted'}`} />
+              {hasPreview ? 'Now playing' : 'No preview available'}
             </div>
-            <div>{elapsedStr} / 0:30</div>
+            {hasPreview && <div>{elapsedStr} / 0:30</div>}
           </div>
 
           <div className={`gm-cover-wrap${revealed ? ' revealed' : ''}`} aria-label="Album cover">
             <div className="gm-cover-q" aria-hidden="true">?</div>
           </div>
 
-          <div className="gm-progress">
-            <div className="gm-wave-bars" aria-hidden="true">
-              {barHeights.map((h, i) => {
-                const p = i / BAR_COUNT
-                const isPlayed = p < playedFraction
-                const isCursor = !isPlayed && p < playedFraction + 0.025
-                return (
-                  <span
-                    key={i}
-                    style={{
-                      height: `${h}px`,
-                      background: isPlayed
-                        ? 'var(--accent)'
-                        : isCursor
-                        ? 'var(--accent-2)'
-                        : 'var(--surface-2)',
-                      opacity: isPlayed ? 1 : 0.8,
-                    }}
-                  />
-                )
-              })}
-            </div>
-            <div className="gm-play-row">
-              <div className="gm-play-indicator">
-                <span className="gm-eq" aria-hidden="true"><i /><i /><i /></span>
-                30-sec preview
+          {hasPreview ? (
+            <div className="gm-progress">
+              <div className="gm-wave-bars" aria-hidden="true">
+                {barHeights.map((h, i) => {
+                  const p = i / BAR_COUNT
+                  const isPlayed = p < playedFraction
+                  const isCursor = !isPlayed && p < playedFraction + 0.025
+                  return (
+                    <span
+                      key={i}
+                      style={{
+                        height: `${h}px`,
+                        background: isPlayed
+                          ? 'var(--accent)'
+                          : isCursor
+                          ? 'var(--accent-2)'
+                          : 'var(--surface-2)',
+                        opacity: isPlayed ? 1 : 0.8,
+                      }}
+                    />
+                  )
+                })}
               </div>
-              <div className="gm-time">
-                <b>{elapsedStr}</b> / 0:30
+              <div className="gm-play-row">
+                <div className="gm-play-indicator">
+                  <span className="gm-eq" aria-hidden="true"><i /><i /><i /></span>
+                  30-sec preview
+                </div>
+                <div className="gm-time">
+                  <b>{elapsedStr}</b> / 0:30
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="gm-progress gm-no-preview">
+              No audio for this track — guess from the options below.
+            </div>
+          )}
         </div>
 
         {/* Timer */}

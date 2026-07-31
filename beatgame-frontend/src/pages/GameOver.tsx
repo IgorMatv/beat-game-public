@@ -12,9 +12,9 @@ export default function GameOver() {
   const intentionalNav = useRef(false)
 
   const gameOver = store.lastGameOver
-  const winnerToken = gameOver?.winnerPlayerToken ?? null
-  const iWon = winnerToken === store.playerToken
-  const isTie = gameOver !== null && winnerToken === null
+  const winnerId = gameOver?.winnerPlayerId ?? null
+  const iWon = winnerId === store.playerId
+  const isTie = gameOver !== null && winnerId === null
 
   // Redirect if store was reset (e.g. page refresh on /game-over), but not when we're navigating on purpose
   useEffect(() => {
@@ -82,31 +82,31 @@ export default function GameOver() {
   if (!gameOver) return null
 
   const { scores } = gameOver
-  const { playerToken, playerName, isHost, lobbyPlayers, gameMode, roomCode } = store
+  const { playerId, playerName, isHost, lobbyPlayers, gameMode, roomCode } = store
   const totalRounds = store.currentRound?.totalRounds ?? '?'
 
-  // Build token → name map
-  const nameByToken: Record<string, string> = { [playerToken]: playerName }
+  // Build playerId → name map
+  const nameById: Record<string, string> = { [playerId]: playerName }
   if (gameMode === 'multi') {
     const opPlayer = lobbyPlayers.find(p => p.isHost !== isHost)
-    const opToken = Object.keys(scores).find(t => t !== playerToken)
-    if (opPlayer && opToken) nameByToken[opToken] = opPlayer.name
+    const opId = Object.keys(scores).find(id => id !== playerId)
+    if (opPlayer && opId) nameById[opId] = opPlayer.name
   }
 
   // Sorted scoreboard entries
   const entries = Object.entries(scores)
-    .map(([token, score]) => ({ token, score, name: nameByToken[token] ?? 'Player' }))
+    .map(([id, score]) => ({ id, score, name: nameById[id] ?? 'Player' }))
     .sort((a, b) => b.score - a.score)
 
-  function entryClass(token: string): string {
+  function entryClass(id: string): string {
     if (isTie) return 'tied'
-    return token === winnerToken ? 'winner' : 'loser'
+    return id === winnerId ? 'winner' : 'loser'
   }
 
   const topScore = entries[0]?.score ?? 0
   const secondScore = entries[1]?.score ?? 0
   const margin = topScore - secondScore
-  const winnerName = winnerToken ? (nameByToken[winnerToken] ?? 'Player') : ''
+  const winnerName = winnerId ? (nameById[winnerId] ?? 'Player') : ''
 
   async function handlePlayAgain() {
     intentionalNav.current = true
@@ -116,8 +116,12 @@ export default function GameOver() {
       store.setPlayerName(name)
       navigate('/solo/config')
     } else {
-      const { roomCode, isHost } = store
-      if (isHost && roomCode) {
+      const { roomCode } = store
+      // Either player may click first — reset is idempotent (sets WAITING + clears
+      // redis regardless of current state), so whoever clicks first ensures the room
+      // is ready before navigating instead of relying on the host having already done
+      // it (issue #35: a guest who clicked first could be stranded outside the room).
+      if (roomCode) {
         try {
           await fetch(`${API_BASE}/api/rooms/${roomCode}/reset`, { method: 'POST' })
         } catch (err) {
@@ -192,10 +196,10 @@ export default function GameOver() {
         {/* Scoreboard */}
         <section className="go-board">
           {entries.map((entry, i) => {
-            const cls = entryClass(entry.token)
-            const isMe = entry.token === playerToken
+            const cls = entryClass(entry.id)
+            const isMe = entry.id === playerId
             return (
-              <div key={entry.token} className={`go-entry ${cls}`}>
+              <div key={entry.id} className={`go-entry ${cls}`}>
                 <div className="go-rank">#{i + 1}</div>
                 <div className="go-who">
                   <div className="go-nm">

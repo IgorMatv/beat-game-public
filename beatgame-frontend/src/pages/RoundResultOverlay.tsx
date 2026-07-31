@@ -31,7 +31,7 @@ export default function RoundResultOverlay({ myTimeMs, onReady, onPauseToggle }:
   const store = useGameStore()
   const result = store.lastRoundResult!
   const round = store.currentRound!
-  const { playerToken, playerName, isHost, lobbyPlayers, gameMode, scores, prevScores } = store
+  const { playerId, playerName, isHost, lobbyPlayers, gameMode, scores, prevScores } = store
 
   const paused = store.musicPaused
   const isLastRound = round.roundNumber >= round.totalRounds
@@ -49,8 +49,8 @@ export default function RoundResultOverlay({ myTimeMs, onReady, onPauseToggle }:
   }, [countDown, paused, onReady, isLastRound])
 
   // Score deltas
-  const myPrev = prevScores[playerToken] ?? 0
-  const myTotal = scores[playerToken] ?? 0
+  const myPrev = prevScores[playerId] ?? 0
+  const myTotal = scores[playerId] ?? 0
   const myDelta = myTotal - myPrev
   const myCorrect = myDelta > 0
 
@@ -58,9 +58,9 @@ export default function RoundResultOverlay({ myTimeMs, onReady, onPauseToggle }:
   const opponentPlayer = gameMode === 'multi'
     ? lobbyPlayers.find(p => p.isHost !== isHost) ?? null
     : null
-  const opponentToken = Object.keys(result.scores).find(t => t !== playerToken) ?? null
-  const opponentPrev = opponentToken ? (prevScores[opponentToken] ?? 0) : 0
-  const opponentTotal = opponentToken ? (scores[opponentToken] ?? 0) : 0
+  const opponentId = Object.keys(result.scores).find(id => id !== playerId) ?? null
+  const opponentPrev = opponentId ? (prevScores[opponentId] ?? 0) : 0
+  const opponentTotal = opponentId ? (scores[opponentId] ?? 0) : 0
   const opponentDelta = opponentTotal - opponentPrev
   const opponentCorrect = opponentDelta > 0
 

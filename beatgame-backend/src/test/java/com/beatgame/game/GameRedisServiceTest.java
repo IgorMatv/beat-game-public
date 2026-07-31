@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.player.Player;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,9 +10,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,11 +29,13 @@ class GameRedisServiceTest {
 
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock ValueOperations<String, String> valueOps;
+    @Mock HashOperations<String, String, String> hashOps;
     GameRedisService service;
 
     @BeforeEach
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(redisTemplate.<String, String>opsForHash()).thenReturn(hashOps);
         service = new GameRedisService(redisTemplate,
             new ObjectMapper().registerModule(new ParameterNamesModule()));
     }
@@ -80,6 +87,24 @@ class GameRedisServiceTest {
     }
 
     @Test
+    void markReady_returnsTrueFirstTime() {
+        when(valueOps.setIfAbsent("readied:ABC123:1:tok", "1")).thenReturn(true);
+
+        boolean first = service.markReady("ABC123", 1, "tok");
+
+        assertThat(first).isTrue();
+    }
+
+    @Test
+    void markReady_returnsFalseSecondTime() {
+        when(valueOps.setIfAbsent("readied:ABC123:1:tok", "1")).thenReturn(false);
+
+        boolean second = service.markReady("ABC123", 1, "tok");
+
+        assertThat(second).isFalse();
+    }
+
+    @Test
     void addScore_setsInitialAndAdds() {
         when(valueOps.get("score:ABC123:tok")).thenReturn("750");
 
@@ -110,5 +135,113 @@ class GameRedisServiceTest {
         service.clearDisconnect("ABC123", "tok");
 
         verify(redisTemplate).delete("disconnect:ABC123:tok");
+    }
+
+    @Test
+    void incrementJoinAck_incrementsCounter() {
+        when(valueOps.increment("joinack:ABC123")).thenReturn(2L);
+
+        long count = service.incrementJoinAck("ABC123");
+
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    void getJoinAckCount_returnsZeroWhenKeyMissing() {
+        when(valueOps.get("joinack:ABC123")).thenReturn(null);
+
+        assertThat(service.getJoinAckCount("ABC123")).isZero();
+    }
+
+    @Test
+    void getJoinAckCount_returnsStoredValue() {
+        when(valueOps.get("joinack:ABC123")).thenReturn("2");
+
+        assertThat(service.getJoinAckCount("ABC123")).isEqualTo(2);
+    }
+
+    @Test
+    void markRoundStarted_setsTimestampKey() {
+        service.markRoundStarted("ABC123", 1);
+
+        verify(valueOps).set(eq("roundstartedat:ABC123:1"), anyString());
+    }
+
+    @Test
+    void getRoundRemainingSeconds_noTimestamp_returnsFullDuration() {
+        when(valueOps.get("roundstartedat:ABC123:1")).thenReturn(null);
+
+        int remaining = service.getRoundRemainingSeconds("ABC123", 1, 15);
+
+        assertThat(remaining).isEqualTo(15);
+    }
+
+    @Test
+    void getRoundRemainingSeconds_partiallyElapsed_returnsReducedValue() {
+        long startedAt = System.currentTimeMillis() - 6000;
+        when(valueOps.get("roundstartedat:ABC123:1")).thenReturn(String.valueOf(startedAt));
+
+        int remaining = service.getRoundRemainingSeconds("ABC123", 1, 15);
+
+        assertThat(remaining).isBetween(8, 9);
+    }
+
+    @Test
+    void getRoundRemainingSeconds_fullyElapsed_clampsToZero() {
+        long startedAt = System.currentTimeMillis() - 20000;
+        when(valueOps.get("roundstartedat:ABC123:1")).thenReturn(String.valueOf(startedAt));
+
+        int remaining = service.getRoundRemainingSeconds("ABC123", 1, 15);
+
+        assertThat(remaining).isZero();
+    }
+
+    @Test
+    void storePreviewUrls_putsAllEntriesIntoRoomScopedHash() {
+        service.storePreviewUrls("ABC123", Map.of("101", "https://preview1.mp3", "202", "https://preview2.mp3"));
+
+        verify(hashOps).putAll("previews:ABC123", Map.of("101", "https://preview1.mp3", "202", "https://preview2.mp3"));
+    }
+
+    @Test
+    void storePreviewUrls_doesNothing_whenMapEmpty() {
+        service.storePreviewUrls("ABC123", Map.of());
+
+        verify(hashOps, never()).putAll(any(), any());
+    }
+
+    @Test
+    void getPreviewUrl_returnsStoredValue() {
+        when(hashOps.get("previews:ABC123", "101")).thenReturn("https://preview1.mp3");
+
+        assertThat(service.getPreviewUrl("ABC123", "101")).isEqualTo("https://preview1.mp3");
+    }
+
+    @Test
+    void getPreviewUrl_returnsNull_whenNotResolved() {
+        when(hashOps.get("previews:ABC123", "999")).thenReturn(null);
+
+        assertThat(service.getPreviewUrl("ABC123", "999")).isNull();
+    }
+
+    @Test
+    void getScoresByPlayerId_keysScoresByPlayerIdNotToken() {
+        // Broadcast payloads must never key scores by the raw playerToken — another
+        // player could read it straight out of the message and hijack that session
+        // (issue #24). playerId is a public, non-secret identifier, safe to broadcast.
+        Player host = new Player();
+        host.setPlayerToken("host-tok");
+        ReflectionTestUtils.setField(host, "id", 1L);
+        Player guest = new Player();
+        guest.setPlayerToken("guest-tok");
+        ReflectionTestUtils.setField(guest, "id", 2L);
+        when(valueOps.get("score:ABC123:host-tok")).thenReturn("500");
+        when(valueOps.get("score:ABC123:guest-tok")).thenReturn("300");
+
+        Map<String, Integer> scores = service.getScoresByPlayerId("ABC123", List.of(host, guest));
+
+        assertThat(scores).containsExactlyInAnyOrderEntriesOf(Map.of("1", 500, "2", 300));
+        assertThat(scores).doesNotContainKey("host-tok");
+        assertThat(scores).doesNotContainKey("guest-tok");
     }
 }

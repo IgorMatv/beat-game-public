@@ -30,14 +30,55 @@ management:
 deezer:
   api:
     base-url: ${DEEZER_API_BASE_URL:https://api.deezer.com}
+    connect-timeout-ms: ${DEEZER_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${DEEZER_READ_TIMEOUT_MS:5000}
 
 itunes:
   api:
     base-url: ${ITUNES_API_BASE_URL:https://itunes.apple.com}
+    connect-timeout-ms: ${ITUNES_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${ITUNES_READ_TIMEOUT_MS:5000}
 
 allowed-origins: ${ALLOWED_ORIGINS:http://localhost,http://localhost:5173,https://commodities-makes-marathon-chance.trycloudflare.com}
 
 admin:
   token: ${ADMIN_TOKEN:12345}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      deezer:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
+  retry:
+    instances:
+      deezer:
+        max-attempts: 3
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
+        ignore-exceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      itunes:
+        max-attempts: 3
+        wait-duration: 1000ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
 
 debug: false

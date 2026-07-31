@@ -44,6 +44,7 @@ export default function Lobby() {
   const isHost = store.isHost
   const playerToken = store.playerToken
   const lobbyPlayers = store.lobbyPlayers
+  const startGameError = store.startGameError
 
   // Derive host and guest from lobbyPlayers; fall back to local store info for host
   const hostPlayer: LobbyPlayer | null =
@@ -84,6 +85,13 @@ export default function Lobby() {
     }
     return () => { disconnect() }
   }, [roomCode, playerToken, connect, disconnect])
+
+  // Auto-dismiss a failed Start attempt (e.g. category has no tracks yet) after a few seconds
+  useEffect(() => {
+    if (!startGameError) return
+    const id = setTimeout(() => store.setStartGameError(null), 5000)
+    return () => clearTimeout(id)
+  }, [startGameError])
 
   // Silent audio unlock on first interaction
   useEffect(() => {
@@ -356,6 +364,11 @@ export default function Lobby() {
       {/* Copy toast */}
       <div className={`lb-toast${copied ? ' show' : ''}`}>
         Copied · {roomCode}
+      </div>
+
+      {/* Start error toast */}
+      <div className={`lb-toast error${startGameError ? ' show' : ''}`}>
+        {startGameError}
       </div>
     </div>
   )

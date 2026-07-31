@@ -1,8 +1,8 @@
 import { useRef, useCallback } from 'react'
 import SockJS from 'sockjs-client'
-import { Client } from '@stomp/stompjs'
+import { Client, ReconnectionTimeMode } from '@stomp/stompjs'
 import { useGameStore } from '../store/useGameStore'
-import type { RoundStartMessage, RoundResultMessage, GameOverMessage, RoomStateMessage, RoomConfigMessage, SubmitAnswerPayload, StartGamePayload, RejoinPayload, UpdateConfigPayload, MusicPausedMessage, GamePausePayload } from '../types'
+import type { RoundStartMessage, RoundResultMessage, GameOverMessage, RoomStateMessage, RoomConfigMessage, StartGameErrorMessage, SubmitAnswerPayload, StartGamePayload, UpdateConfigPayload, MusicPausedMessage, GamePausePayload } from '../types'
 
 // VITE_API_BASE_URL must use https:// in production to avoid mixed-content blocking.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -15,7 +15,7 @@ function isRoundResult(m: unknown): m is RoundResultMessage {
   return typeof m === 'object' && m !== null && 'correctAnswer' in m && 'correctTrackId' in m
 }
 function isGameOver(m: unknown): m is GameOverMessage {
-  return typeof m === 'object' && m !== null && 'winnerPlayerToken' in m
+  return typeof m === 'object' && m !== null && 'winnerPlayerId' in m
 }
 function isRoomState(m: unknown): m is RoomStateMessage {
   return typeof m === 'object' && m !== null && 'players' in m && 'status' in m
@@ -30,6 +30,9 @@ function isMusicPaused(m: unknown): m is MusicPausedMessage {
     && 'paused' in m && typeof (m as Record<string, unknown>).paused === 'boolean'
     && Object.keys(m as object).length === 1
 }
+function isStartGameError(m: unknown): m is StartGameErrorMessage {
+  return typeof m === 'object' && m !== null && 'reason' in m
+}
 
 export function useWebSocket() {
   const clientRef = useRef<Client | null>(null)
@@ -40,15 +43,18 @@ export function useWebSocket() {
     const client = new Client({
       webSocketFactory: () => new SockJS(`${API_BASE}/ws`),
       connectHeaders: { playerToken, roomCode },
-      reconnectDelay: 5000,
+      reconnectDelay: 1000,
+      maxReconnectDelay: 30000,
+      reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
       onConnect: () => {
         console.log('[WS] connected')
 
         client.subscribe(`/topic/room.${roomCode}`, (frame) => {
           try {
             const raw: unknown = JSON.parse(frame.body)
-            if (isRoomState(raw))       useGameStore.getState().applyRoomState(raw)
-            else if (isRoomConfig(raw)) useGameStore.getState().applyRoomConfig(raw)
+            if (isRoomState(raw))          useGameStore.getState().applyRoomState(raw)
+            else if (isRoomConfig(raw))     useGameStore.getState().applyRoomConfig(raw)
+            else if (isStartGameError(raw)) useGameStore.getState().setStartGameError(raw.reason)
             else console.warn('[WS] unknown room message', raw)
           } catch (err) {
             console.error('[WS] failed to parse room message', err)
@@ -69,11 +75,17 @@ export function useWebSocket() {
           }
         })
 
-        const { phase } = useGameStore.getState()
-        if (phase !== 'home' && phase !== 'lobby') {
-          const payload: RejoinPayload = { roomCode, playerToken }
-          client.publish({ destination: '/app/game.rejoin', body: JSON.stringify(payload) })
-        }
+        // Ack that this client is now subscribed to the game topic — lets the server
+        // gate round 1's broadcast until every current player has actually subscribed
+        // (fixes a fresh-join race, see issue #34). Harmless/no-op before the host
+        // starts the game or for solo rooms.
+        client.publish({ destination: '/app/game.subscribed', body: JSON.stringify({ roomCode }) })
+
+        // Unconditionally ask the server for the current round/score/remaining-time —
+        // not gated on client-side phase, since a full page reload resets phase to
+        // 'home' regardless of which room/round the player was actually in (#28).
+        // No-op server-side unless the room is actually IN_GAME.
+        client.publish({ destination: '/app/game.sync', body: JSON.stringify({ roomCode }) })
 
         onConnected?.()
       },
@@ -102,13 +114,6 @@ export function useWebSocket() {
     clientRef.current?.publish({ destination: '/app/game.start', body: JSON.stringify(payload) })
   }, [])
 
-  const sendRejoin = useCallback((roomCode: string, playerToken: string) => {
-    clientRef.current?.publish({
-      destination: '/app/game.rejoin',
-      body: JSON.stringify({ roomCode, playerToken }),
-    })
-  }, [])
-
   const sendConfig = useCallback((payload: UpdateConfigPayload) => {
     clientRef.current?.publish({ destination: '/app/room.config', body: JSON.stringify(payload) })
   }, [])
@@ -117,5 +122,5 @@ export function useWebSocket() {
     clientRef.current?.publish({ destination: '/app/game.pause', body: JSON.stringify(payload) })
   }, [])
 
-  return { connect, disconnect, sendAnswer, sendReady, sendStart, sendRejoin, sendConfig, sendPause }
+  return { connect, disconnect, sendAnswer, sendReady, sendStart, sendConfig, sendPause }
 }

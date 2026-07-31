@@ -70,6 +70,11 @@ public class GameService {
         }
 
         List<Track> tracks = trackService.getTracksForCategory(msg.category(), msg.categoryType(), msg.rounds());
+        if (tracks.isEmpty()) {
+            messagingTemplate.convertAndSend("/topic/room." + msg.roomCode(),
+                new StartGameErrorMessage("No tracks available for " + msg.category() + " — try a different category."));
+            return;
+        }
         Long[] trackIds = tracks.stream().map(Track::getId).toArray(Long[]::new);
 
         String config;
@@ -92,16 +97,20 @@ public class GameService {
         gameRedisService.storeGameState(msg.roomCode(), state);
         gameRedisService.setCurrentRound(msg.roomCode(), 1);
 
+        // Resolve every round's preview URL once, up front, instead of live per round-start
+        // (issue #5) — a slow/dead provider now only delays this screen, not every round
+        // transition. A track whose preview fails to resolve just has no cache entry; its
+        // round proceeds with previewUrl=null (frontend shows a "no preview" state).
+        Map<String, String> previews = previewUrlResolverService.resolve(tracks);
+        gameRedisService.storePreviewUrls(msg.roomCode(), previews);
+
         List<Player> players = playerRepository.findByRoomId(room.getId());
         for (Player p : players) {
             gameRedisService.addScore(msg.roomCode(), p.getPlayerToken(), 0);
         }
 
-        RoundStartMessage roundStart = buildRoundStart(msg.roomCode(), tracks.get(0), 1, msg.rounds(), msg.category(), msg.categoryType());
-        messagingTemplate.convertAndSend("/topic/game." + msg.roomCode(), roundStart);
-
+        roundService.armRound1(msg.roomCode(), room.getMaxPlayers());
         broadcastRoomState(msg.roomCode());
-        roundService.scheduleRoundTimeout(msg.roomCode(), 1, room.getMaxPlayers());
     }
 
     public void broadcastRoomState(String roomCode) {
@@ -121,17 +130,22 @@ public class GameService {
         Long trackId = state.trackIds()[roundNumber - 1];
         Track track = trackRepository.findById(trackId)
             .orElseThrow(() -> new IllegalStateException("Track not found: " + trackId));
-        return buildRoundStart(roomCode, track, roundNumber, state.totalRounds(), state.category(), state.categoryType());
+        int remainingSeconds = gameRedisService.getRoundRemainingSeconds(roomCode, roundNumber, RoundService.ROUND_SECONDS);
+        Room room = roomRepository.findByCode(roomCode)
+            .orElseThrow(() -> new IllegalStateException("Room not found: " + roomCode));
+        List<Player> players = playerRepository.findByRoomId(room.getId());
+        Map<String, Integer> scores = gameRedisService.getScoresByPlayerId(roomCode, players);
+        return buildRoundStart(roomCode, track, roundNumber, state.totalRounds(), state.category(), state.categoryType(), remainingSeconds, scores);
     }
 
     private RoundStartMessage buildRoundStart(String roomCode, Track track, int roundNumber, int totalRounds,
-                                               String category, String categoryType) {
+                                               String category, String categoryType, int remainingSeconds,
+                                               Map<String, Integer> scores) {
         List<String> options = generateOptions(track, category, categoryType);
         String correctOption = track.getTitle() + " — " + track.getArtist();
         gameRedisService.storeCorrectIndex(roomCode, roundNumber, options.indexOf(correctOption));
-        Map<String, String> previews = previewUrlResolverService.resolve(List.of(track));
-        String previewUrl = previews.get(track.getExternalId());
-        return new RoundStartMessage(roundNumber, totalRounds, track.getId(), previewUrl, options);
+        String previewUrl = gameRedisService.getPreviewUrl(roomCode, track.getExternalId());
+        return new RoundStartMessage(roundNumber, totalRounds, track.getId(), previewUrl, options, remainingSeconds, scores);
     }
 
     public List<String> generateOptions(Track correctTrack, String category, String categoryType) {
@@ -187,11 +201,12 @@ public class GameService {
     }
 
     @Transactional(readOnly = true)
-    public void handleRejoin(RejoinMessage msg) {
-        if (!gameRedisService.isDisconnected(msg.roomCode(), msg.playerToken())) return;
-        gameRedisService.clearDisconnect(msg.roomCode(), msg.playerToken());
-        int currentRound = gameRedisService.getCurrentRound(msg.roomCode());
-        RoundStartMessage roundStart = buildRoundStartForRound(msg.roomCode(), currentRound);
-        messagingTemplate.convertAndSend("/topic/game." + msg.roomCode(), roundStart);
+    public void handleSync(String roomCode) {
+        Room room = roomRepository.findByCode(roomCode).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.IN_GAME) return;
+        if (gameRedisService.loadGameState(roomCode) == null) return;
+        int currentRound = gameRedisService.getCurrentRound(roomCode);
+        RoundStartMessage roundStart = buildRoundStartForRound(roomCode, currentRound);
+        messagingTemplate.convertAndSend("/topic/game." + roomCode, roundStart);
     }
 }

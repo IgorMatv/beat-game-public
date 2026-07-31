@@ -4,6 +4,7 @@ import com.beatgame.game.GameService;
 import com.beatgame.game.RoundService;
 import com.beatgame.room.Room;
 import com.beatgame.room.RoomRepository;
+import com.beatgame.room.RoomStatus;
 import com.beatgame.websocket.dto.*;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -57,9 +58,17 @@ public class GameWebSocketController {
         roundService.handleReady(msg, playerToken, room.getMaxPlayers());
     }
 
-    @MessageMapping("game.rejoin")
-    public void handleRejoin(@Payload RejoinMessage msg) {
-        gameService.handleRejoin(msg);
+    @MessageMapping("game.subscribed")
+    public void handleSubscribed(@Payload JoinAckMessage msg, SimpMessageHeaderAccessor headerAccessor) {
+        String playerToken = extractPlayerToken(headerAccessor);
+        Room room = roomRepository.findByCode(msg.roomCode())
+            .orElseThrow(() -> new IllegalArgumentException("Room not found: " + msg.roomCode()));
+        roundService.handleJoinAck(msg.roomCode(), playerToken, room.getStatus() == RoomStatus.IN_GAME, room.getMaxPlayers());
+    }
+
+    @MessageMapping("game.sync")
+    public void handleSync(@Payload GameSyncMessage msg) {
+        gameService.handleSync(msg.roomCode());
     }
 
     @MessageMapping("room.config")
