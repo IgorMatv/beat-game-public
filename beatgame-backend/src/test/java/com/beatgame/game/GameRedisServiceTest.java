@@ -197,6 +197,86 @@ class GameRedisServiceTest {
     }
 
     @Test
+    void markReadyStarted_setsTimestampKey() {
+        service.markReadyStarted("ABC123", 2);
+
+        verify(valueOps).set(eq("readystartedat:ABC123:2"), anyString());
+    }
+
+    @Test
+    void getReadyRemainingSeconds_noTimestamp_returnsFullDuration() {
+        when(valueOps.get("readystartedat:ABC123:2")).thenReturn(null);
+
+        int remaining = service.getReadyRemainingSeconds("ABC123", 2, 30);
+
+        assertThat(remaining).isEqualTo(30);
+    }
+
+    @Test
+    void getReadyRemainingSeconds_partiallyElapsed_returnsReducedValue() {
+        long startedAt = System.currentTimeMillis() - 10_000;
+        when(valueOps.get("readystartedat:ABC123:2")).thenReturn(String.valueOf(startedAt));
+
+        int remaining = service.getReadyRemainingSeconds("ABC123", 2, 30);
+
+        assertThat(remaining).isBetween(19, 20);
+    }
+
+    @Test
+    void getReadyRemainingSeconds_fullyElapsed_clampsToZero() {
+        long startedAt = System.currentTimeMillis() - 40_000;
+        when(valueOps.get("readystartedat:ABC123:2")).thenReturn(String.valueOf(startedAt));
+
+        int remaining = service.getReadyRemainingSeconds("ABC123", 2, 30);
+
+        assertThat(remaining).isZero();
+    }
+
+    @Test
+    void roundHasStarted_keyPresent_returnsTrue() {
+        when(redisTemplate.hasKey("roundstartedat:ABC123:1")).thenReturn(true);
+
+        assertThat(service.roundHasStarted("ABC123", 1)).isTrue();
+    }
+
+    @Test
+    void roundHasStarted_keyAbsent_returnsFalse() {
+        when(redisTemplate.hasKey("roundstartedat:ABC123:1")).thenReturn(false);
+
+        assertThat(service.roundHasStarted("ABC123", 1)).isFalse();
+    }
+
+    @Test
+    void roundIsClosed_keyPresent_returnsTrue() {
+        when(redisTemplate.hasKey("roundclosed:ABC123:1")).thenReturn(true);
+
+        assertThat(service.roundIsClosed("ABC123", 1)).isTrue();
+    }
+
+    @Test
+    void readyPhaseStarted_keyPresent_returnsTrue() {
+        when(redisTemplate.hasKey("readystartedat:ABC123:2")).thenReturn(true);
+
+        assertThat(service.readyPhaseStarted("ABC123", 2)).isTrue();
+    }
+
+    @Test
+    void findRoomCodesWithActiveGame_returnsRoomCodesFromGameKeys() {
+        // Cursor.forEachRemaining is a default java.util.Iterator method — must use
+        // CALLS_REAL_METHODS so it actually loops hasNext()/next() instead of being a
+        // no-op mocked method itself.
+        org.springframework.data.redis.core.Cursor<String> cursor =
+            mock(org.springframework.data.redis.core.Cursor.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        when(cursor.hasNext()).thenReturn(true, true, false);
+        when(cursor.next()).thenReturn("game:ABC123", "game:XYZ999");
+        when(redisTemplate.scan(any(org.springframework.data.redis.core.ScanOptions.class))).thenReturn(cursor);
+
+        java.util.Set<String> roomCodes = service.findRoomCodesWithActiveGame();
+
+        assertThat(roomCodes).containsExactlyInAnyOrder("ABC123", "XYZ999");
+    }
+
+    @Test
     void storePreviewUrls_putsAllEntriesIntoRoomScopedHash() {
         service.storePreviewUrls("ABC123", Map.of("101", "https://preview1.mp3", "202", "https://preview2.mp3"));
 

@@ -111,6 +111,46 @@ public class GameRedisService {
         return Math.max(remaining, 0);
     }
 
+    public boolean roundHasStarted(String roomCode, int round) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey("roundstartedat:" + roomCode + ":" + round));
+    }
+
+    public boolean roundIsClosed(String roomCode, int round) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey("roundclosed:" + roomCode + ":" + round));
+    }
+
+    // Set once, by closeRound, as the ready phase's single point of truth for elapsed
+    // time — scheduleReadyTimeout itself must stay a pure scheduling call so a startup
+    // resume can re-arm it with a partial delay without resetting this timestamp.
+    public void markReadyStarted(String roomCode, int round) {
+        redisTemplate.opsForValue().set("readystartedat:" + roomCode + ":" + round, String.valueOf(System.currentTimeMillis()));
+    }
+
+    public boolean readyPhaseStarted(String roomCode, int round) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey("readystartedat:" + roomCode + ":" + round));
+    }
+
+    public int getReadyRemainingSeconds(String roomCode, int round, int readySeconds) {
+        String val = redisTemplate.opsForValue().get("readystartedat:" + roomCode + ":" + round);
+        if (val == null) return readySeconds;
+        long startedAt = Long.parseLong(val);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        int remaining = readySeconds - (int) (elapsedMs / 1000);
+        return Math.max(remaining, 0);
+    }
+
+    // Startup timer resumption (issue #29) scans for every room with an active
+    // GameState so it knows which rooms need their round/ready timer re-armed.
+    public java.util.Set<String> findRoomCodesWithActiveGame() {
+        java.util.Set<String> roomCodes = new java.util.HashSet<>();
+        org.springframework.data.redis.core.ScanOptions options =
+            org.springframework.data.redis.core.ScanOptions.scanOptions().match("game:*").count(100).build();
+        try (var cursor = redisTemplate.scan(options)) {
+            cursor.forEachRemaining(key -> roomCodes.add(key.substring("game:".length())));
+        }
+        return roomCodes;
+    }
+
     // Preview URLs are resolved once, up front, for every track in the game (see
     // GameService.startGame) rather than live per round-start — a slow/dead provider
     // then only delays the "waiting to start" screen, not every round transition
@@ -177,6 +217,7 @@ public class GameRedisService {
         deleteByPattern("ready:" + roomCode + ":*");
         deleteByPattern("readied:" + roomCode + ":*");
         deleteByPattern("roundstartedat:" + roomCode + ":*");
+        deleteByPattern("readystartedat:" + roomCode + ":*");
         redisTemplate.delete("previews:" + roomCode);
         redisTemplate.delete("joinack:" + roomCode);
         deleteByPattern("roundstarted:" + roomCode + ":*");

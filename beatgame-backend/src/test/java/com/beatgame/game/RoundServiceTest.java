@@ -22,6 +22,7 @@ import org.springframework.transaction.TransactionStatus;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -99,7 +100,7 @@ class RoundServiceTest {
     void submitAnswer_ignoresDuplicateAnswer() {
         when(gameRedisService.markAnswered(any(), anyInt(), any())).thenReturn(false);
 
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok", "ABC123");
 
         verify(gameRedisService, never()).incrementAnswers(any(), anyInt());
     }
@@ -116,7 +117,7 @@ class RoundServiceTest {
         when(gameRedisService.getCorrectIndex("ABC123", 1)).thenReturn(2);
 
         // Correct: trackId matches the round's track, answerIndex matches stored correct index
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 2, 5000), "tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 2, 5000), "tok", "ABC123");
 
         verify(gameRedisService).addScore(eq("ABC123"), eq("tok"), eq(666)); // 1000 * 10000/15000 = 666
     }
@@ -133,7 +134,7 @@ class RoundServiceTest {
         when(gameRedisService.getCorrectIndex("ABC123", 1)).thenReturn(2);
 
         // Wrong: trackId matches (not stale) but answerIndex=0 != correctIndex=2
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok", "ABC123");
 
         verify(gameRedisService).addScore(eq("ABC123"), eq("tok"), eq(0));
     }
@@ -146,7 +147,7 @@ class RoundServiceTest {
         when(gameRedisService.loadGameState("ABC123")).thenReturn(state);
 
         // Stale: trackId=99 doesn't match round's trackId=1
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 99L, 0, 3000), "tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 99L, 0, 3000), "tok", "ABC123");
 
         verify(gameRedisService, never()).addScore(any(), any(), anyInt());
     }
@@ -175,7 +176,7 @@ class RoundServiceTest {
         when(gameRedisService.getScoresByPlayerId(any(), any())).thenReturn(Map.of("5", 750));
         when(gameSessionRepository.findTopByRoomIdOrderByStartedAtDesc(any())).thenReturn(Optional.empty());
 
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 5000), "tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 5000), "tok", "ABC123");
 
         // Verify RoundResultMessage sent immediately; GameOverMessage is scheduled (4-second delay)
         verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/game.ABC123"), any(RoundResultMessage.class));
@@ -212,7 +213,7 @@ class RoundServiceTest {
         when(timerExecutor.schedule(gameOverRunnable.capture(), eq(4L), eq(java.util.concurrent.TimeUnit.SECONDS)))
             .thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
 
-        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 5000), "secret-tok");
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 5000), "secret-tok", "ABC123");
         gameOverRunnable.getValue().run(); // fire the scheduled GameOverMessage broadcast
 
         ArgumentCaptor<Object> payloads = ArgumentCaptor.forClass(Object.class);
@@ -277,6 +278,29 @@ class RoundServiceTest {
     }
 
     @Test
+    void handleJoinAck_gameNotInProgress_broadcastsRoomState() {
+        // A reconnect while still in the lobby (e.g. after a host-disconnect host-transfer,
+        // issue #31) has no other way to learn the current room state — STOMP topics don't
+        // replay messages sent while a client was offline.
+        when(gameRedisService.incrementJoinAck("ABC123")).thenReturn(1L);
+
+        roundService.handleJoinAck("ABC123", "tok", false, 2);
+
+        verify(gameService).broadcastRoomState("ABC123");
+    }
+
+    @Test
+    void handleJoinAck_gameInProgress_doesNotBroadcastRoomState() {
+        // In-game reconnects get their state from game.sync instead — a redundant
+        // RoomStateMessage here would be needless noise.
+        when(gameRedisService.incrementJoinAck("ABC123")).thenReturn(1L);
+
+        roundService.handleJoinAck("ABC123", "tok", true, 2);
+
+        verify(gameService, never()).broadcastRoomState(any());
+    }
+
+    @Test
     void handleJoinAck_gameInProgressAndQuorumReached_startsRound1() {
         when(gameRedisService.incrementJoinAck("ABC123")).thenReturn(2L);
         when(gameRedisService.claimRoundStart("ABC123", 1)).thenReturn(true);
@@ -318,7 +342,7 @@ class RoundServiceTest {
         when(gameRedisService.getCurrentRound("ABC123")).thenReturn(1);
         when(gameRedisService.markReady("ABC123", 1, "tok")).thenReturn(false);
 
-        roundService.handleReady(new ReadyMessage("ABC123"), "tok", 2);
+        roundService.handleReady(new ReadyMessage("ABC123"), "tok", "ABC123", 2);
 
         verify(gameRedisService, never()).incrementReady(any(), anyInt());
         verify(gameRedisService, never()).claimRoundStart(any(), anyInt());
@@ -330,7 +354,7 @@ class RoundServiceTest {
         when(gameRedisService.markReady("ABC123", 1, "tok")).thenReturn(true);
         when(gameRedisService.incrementReady("ABC123", 1)).thenReturn(1L);
 
-        roundService.handleReady(new ReadyMessage("ABC123"), "tok", 2);
+        roundService.handleReady(new ReadyMessage("ABC123"), "tok", "ABC123", 2);
 
         verify(gameRedisService).incrementReady("ABC123", 1);
         verify(gameRedisService, never()).claimRoundStart(any(), anyInt());
@@ -345,9 +369,118 @@ class RoundServiceTest {
         RoundStartMessage msg = new RoundStartMessage(1, 3, 1L, "url", List.of("a", "b", "c", "d"), 15, Map.of());
         when(gameService.buildRoundStartForRound("ABC123", 1)).thenReturn(msg);
 
-        roundService.handleReady(new ReadyMessage("ABC123"), "tok2", 2);
+        roundService.handleReady(new ReadyMessage("ABC123"), "tok2", "ABC123", 2);
 
         verify(messagingTemplate).convertAndSend(eq("/topic/game.ABC123"), eq(msg));
+    }
+
+    @Test
+    void resumeTimersAfterRestart_roundInProgress_reArmsRoundTimeoutWithRemainingTime() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(2);
+        when(gameRedisService.roundHasStarted("ABC123", 2)).thenReturn(true);
+        when(gameRedisService.roundIsClosed("ABC123", 2)).thenReturn(false);
+        when(gameRedisService.getRoundRemainingSeconds("ABC123", 2, RoundService.ROUND_SECONDS)).thenReturn(9);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor).schedule(any(Runnable.class), eq(9L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void resumeTimersAfterRestart_roundAlreadyExpiredWhileDown_schedulesWithZeroDelay() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(2);
+        when(gameRedisService.roundHasStarted("ABC123", 2)).thenReturn(true);
+        when(gameRedisService.roundIsClosed("ABC123", 2)).thenReturn(false);
+        when(gameRedisService.getRoundRemainingSeconds("ABC123", 2, RoundService.ROUND_SECONDS)).thenReturn(0);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor).schedule(any(Runnable.class), eq(0L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void resumeTimersAfterRestart_waitingForReady_reArmsReadyTimeoutWithRemainingTime() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(3);
+        when(gameRedisService.roundHasStarted("ABC123", 3)).thenReturn(false);
+        when(gameRedisService.readyPhaseStarted("ABC123", 3)).thenReturn(true);
+        when(gameRedisService.getReadyRemainingSeconds("ABC123", 3, 30)).thenReturn(12);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor).schedule(any(Runnable.class), eq(12L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void resumeTimersAfterRestart_round1NeverArmed_doesNotScheduleAnything() {
+        // Round 1's pre-arm join-gate window (armRound1) has no timestamp of its own —
+        // neither roundstartedat nor readystartedat exist yet. Nothing reliable to
+        // resume; existing reconnect self-healing (handleJoinAck) covers this case.
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(1);
+        when(gameRedisService.roundHasStarted("ABC123", 1)).thenReturn(false);
+        when(gameRedisService.readyPhaseStarted("ABC123", 1)).thenReturn(false);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    }
+
+    @Test
+    void resumeTimersAfterRestart_roundAlreadyClosedButNotAdvancedYet_doesNothing() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(2);
+        when(gameRedisService.roundHasStarted("ABC123", 2)).thenReturn(true);
+        when(gameRedisService.roundIsClosed("ABC123", 2)).thenReturn(true);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    }
+
+    @Test
+    void resumeTimersAfterRestart_roomNotInGame_isSkipped() {
+        Room finished = roomWithCode("ABC123", 2);
+        finished.setStatus(com.beatgame.room.RoomStatus.FINISHED);
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("ABC123"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(finished));
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(gameRedisService, never()).getCurrentRound(any());
+        verify(timerExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    }
+
+    @Test
+    void resumeTimersAfterRestart_noActiveGames_doesNothing() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of());
+
+        roundService.resumeTimersAfterRestart();
+
+        verifyNoInteractions(roomRepository);
+        verify(timerExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+    }
+
+    @Test
+    void resumeTimersAfterRestart_oneRoomFails_othersStillResumed() {
+        when(gameRedisService.findRoomCodesWithActiveGame()).thenReturn(Set.of("BROKEN1", "ABC123"));
+        when(roomRepository.findByCode("BROKEN1")).thenThrow(new RuntimeException("boom"));
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(roomWithCode("ABC123", 2)));
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(2);
+        when(gameRedisService.roundHasStarted("ABC123", 2)).thenReturn(true);
+        when(gameRedisService.roundIsClosed("ABC123", 2)).thenReturn(false);
+        when(gameRedisService.getRoundRemainingSeconds("ABC123", 2, RoundService.ROUND_SECONDS)).thenReturn(5);
+
+        roundService.resumeTimersAfterRestart();
+
+        verify(timerExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
     }
 
     private Room roomWithCode(String code, int maxPlayers) {

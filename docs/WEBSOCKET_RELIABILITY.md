@@ -25,7 +25,7 @@ After connecting, it subscribes to:
 - `/topic/room.{roomCode}` for lobby and room state
 - `/topic/game.{roomCode}` for rounds, scores, pauses, and game-over events
 
-The backend exposes `/ws`, accepts commands under `/app`, and uses Spring's simple in-memory broker for `/topic` destinations. `AuthChannelInterceptor` attaches the connection headers to the WebSocket session.
+The backend exposes `/ws`, accepts commands under `/app`, and uses Spring's simple in-memory broker for `/topic` destinations. `playerToken` is a signed JWT; `AuthChannelInterceptor` verifies its signature on CONNECT (rejecting invalid or expired tokens) and stores its `roomCode` claim on the WebSocket session, then checks that claim against every SUBSCRIBE destination.
 
 ## Multiplayer disconnect timeline
 

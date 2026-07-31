@@ -62,7 +62,7 @@ class GameServiceTest {
         when(trackService.getTracksForCategory("POP", "GENRE", 3)).thenReturn(List.of(track(1L), track(2L), track(3L)));
         when(gameSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok");
+        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok", "ABC123");
 
         assertThat(room.getStatus()).isEqualTo(RoomStatus.IN_GAME);
         verify(roomRepository).save(room);
@@ -79,7 +79,7 @@ class GameServiceTest {
         when(trackService.getTracksForCategory("POP", "GENRE", 3)).thenReturn(List.of(t1, t2, t3));
         when(gameSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok");
+        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok", "ABC123");
 
         ArgumentCaptor<GameState> captor = ArgumentCaptor.forClass(GameState.class);
         verify(gameRedisService).storeGameState(eq("ABC123"), captor.capture());
@@ -102,7 +102,7 @@ class GameServiceTest {
         Map<String, String> previews = Map.of("1", "https://preview1.mp3");
         when(previewUrlResolverService.resolve(List.of(t1, t2, t3))).thenReturn(previews);
 
-        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok");
+        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok", "ABC123");
 
         verify(gameRedisService).storePreviewUrls("ABC123", previews);
     }
@@ -119,7 +119,7 @@ class GameServiceTest {
         when(trackService.getTracksForCategory("POP", "GENRE", 3)).thenReturn(List.of(track(1L), track(2L), track(3L)));
         when(gameSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok");
+        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok", "ABC123");
 
         verify(roundService).armRound1("ABC123", 2);
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/game.ABC123"), any(RoundStartMessage.class));
@@ -138,7 +138,7 @@ class GameServiceTest {
         when(playerRepository.findByPlayerToken("host-tok")).thenReturn(Optional.of(host));
         when(trackService.getTracksForCategory("UKRAINIAN", "GENRE", 3)).thenReturn(List.of());
 
-        gameService.startGame(new StartGameMessage("ABC123", 3, "UKRAINIAN", "GENRE"), "host-tok");
+        gameService.startGame(new StartGameMessage("ABC123", 3, "UKRAINIAN", "GENRE"), "host-tok", "ABC123");
 
         ArgumentCaptor<StartGameErrorMessage> captor = ArgumentCaptor.forClass(StartGameErrorMessage.class);
         verify(messagingTemplate).convertAndSend(eq("/topic/room.ABC123"), captor.capture());

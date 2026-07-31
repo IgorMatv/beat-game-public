@@ -8,29 +8,29 @@ import type { RoundStartMessage, RoundResultMessage, GameOverMessage, RoomStateM
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // Backend sends no "type" field — detect message shape by unique field presence on both topics.
-function isRoundStart(m: unknown): m is RoundStartMessage {
+export function isRoundStart(m: unknown): m is RoundStartMessage {
   return typeof m === 'object' && m !== null && 'roundNumber' in m && 'trackId' in m && 'options' in m && 'previewUrl' in m
 }
-function isRoundResult(m: unknown): m is RoundResultMessage {
+export function isRoundResult(m: unknown): m is RoundResultMessage {
   return typeof m === 'object' && m !== null && 'correctAnswer' in m && 'correctTrackId' in m
 }
-function isGameOver(m: unknown): m is GameOverMessage {
+export function isGameOver(m: unknown): m is GameOverMessage {
   return typeof m === 'object' && m !== null && 'winnerPlayerId' in m
 }
-function isRoomState(m: unknown): m is RoomStateMessage {
+export function isRoomState(m: unknown): m is RoomStateMessage {
   return typeof m === 'object' && m !== null && 'players' in m && 'status' in m
 }
-function isRoomConfig(m: unknown): m is RoomConfigMessage {
+export function isRoomConfig(m: unknown): m is RoomConfigMessage {
   return typeof m === 'object' && m !== null
     && 'rounds' in m && 'category' in m && 'categoryType' in m
     && !('players' in m)
 }
-function isMusicPaused(m: unknown): m is MusicPausedMessage {
+export function isMusicPaused(m: unknown): m is MusicPausedMessage {
   return typeof m === 'object' && m !== null
     && 'paused' in m && typeof (m as Record<string, unknown>).paused === 'boolean'
     && Object.keys(m as object).length === 1
 }
-function isStartGameError(m: unknown): m is StartGameErrorMessage {
+export function isStartGameError(m: unknown): m is StartGameErrorMessage {
   return typeof m === 'object' && m !== null && 'reason' in m
 }
 

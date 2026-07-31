@@ -41,6 +41,10 @@ itunes:
 
 allowed-origins: ${ALLOWED_ORIGINS:http://localhost,http://localhost:5173,https://commodities-makes-marathon-chance.trycloudflare.com}
 
+jwt:
+  secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-dev-only-insecure}
+  ttl-hours: ${JWT_TTL_HOURS:6}
+
 admin:
   token: ${ADMIN_TOKEN:12345}
 

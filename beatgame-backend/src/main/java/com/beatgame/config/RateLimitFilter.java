@@ -18,6 +18,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final ConcurrentHashMap<String, Bucket> createBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> joinBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Bucket> resetBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Bucket> adminBuckets = new ConcurrentHashMap<>();
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -35,6 +37,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
             } else if (path.matches("/api/rooms/[^/]+/join")) {
                 if (joinBuckets.size() < 100_000) {
                     bucket = joinBuckets.computeIfAbsent(ip, k -> newJoinBucket());
+                }
+            } else if (path.matches("/api/rooms/[^/]+/reset")) {
+                if (resetBuckets.size() < 100_000) {
+                    bucket = resetBuckets.computeIfAbsent(ip, k -> newResetBucket());
+                }
+            } else if (path.startsWith("/api/admin/tracks/populate")) {
+                if (adminBuckets.size() < 100_000) {
+                    bucket = adminBuckets.computeIfAbsent(ip, k -> newAdminBucket());
                 }
             }
 
@@ -71,6 +81,27 @@ public class RateLimitFilter extends OncePerRequestFilter {
             .addLimit(Bandwidth.builder()
                 .capacity(10)
                 .refillGreedy(10, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    private Bucket newResetBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(10)
+                .refillGreedy(10, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    // Admin populate hits external Deezer/iTunes APIs — a rare, deliberate manual
+    // operation, so a tight limit is generous for legitimate use while blocking
+    // abuse of the most expensive endpoint in the app.
+    private Bucket newAdminBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(3)
+                .refillGreedy(3, Duration.ofMinutes(1))
                 .build())
             .build();
     }

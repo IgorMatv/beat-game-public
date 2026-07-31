@@ -94,6 +94,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full package-level brea
    ITUNES_API_BASE_URL=https://itunes.apple.com
    ALLOWED_ORIGINS=http://localhost,http://localhost:5173
    ADMIN_TOKEN=change-me
+   JWT_SECRET=change-me
    GRAFANA_ADMIN_USER=admin
    GRAFANA_ADMIN_PASSWORD=change-me
    VITE_ACCESS_PASSWORD=

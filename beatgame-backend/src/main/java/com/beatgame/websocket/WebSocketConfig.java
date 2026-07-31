@@ -21,9 +21,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private String allowedOrigins;
 
     private final AuthChannelInterceptor authChannelInterceptor;
+    private final WsRateLimitInterceptor wsRateLimitInterceptor;
 
-    public WebSocketConfig(AuthChannelInterceptor authChannelInterceptor) {
+    public WebSocketConfig(AuthChannelInterceptor authChannelInterceptor, WsRateLimitInterceptor wsRateLimitInterceptor) {
         this.authChannelInterceptor = authChannelInterceptor;
+        this.wsRateLimitInterceptor = wsRateLimitInterceptor;
     }
 
     @Override
@@ -55,6 +57,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(authChannelInterceptor);
+        registration.interceptors(authChannelInterceptor, wsRateLimitInterceptor);
     }
 }

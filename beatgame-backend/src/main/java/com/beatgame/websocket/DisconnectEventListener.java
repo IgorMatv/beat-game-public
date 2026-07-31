@@ -1,6 +1,7 @@
 package com.beatgame.websocket;
 
 import com.beatgame.game.GameRedisService;
+import com.beatgame.game.GameService;
 import com.beatgame.game.GameState;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
@@ -32,17 +33,20 @@ public class DisconnectEventListener {
     private final PlayerRepository playerRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ScheduledExecutorService timerExecutor;
+    private final GameService gameService;
 
     public DisconnectEventListener(GameRedisService gameRedisService,
                                    RoomRepository roomRepository,
                                    PlayerRepository playerRepository,
                                    SimpMessagingTemplate messagingTemplate,
-                                   ScheduledExecutorService gameTimerExecutor) {
+                                   ScheduledExecutorService gameTimerExecutor,
+                                   GameService gameService) {
         this.gameRedisService = gameRedisService;
         this.roomRepository = roomRepository;
         this.playerRepository = playerRepository;
         this.messagingTemplate = messagingTemplate;
         this.timerExecutor = gameTimerExecutor;
+        this.gameService = gameService;
     }
 
     @EventListener
@@ -56,7 +60,14 @@ public class DisconnectEventListener {
         if (playerToken == null || roomCode == null) return;
 
         Room room = roomRepository.findByCode(roomCode).orElse(null);
-        if (room == null || room.getStatus() != RoomStatus.IN_GAME) return;
+        if (room == null) return;
+
+        if (room.getStatus() == RoomStatus.WAITING) {
+            handleLobbyDisconnect(room, roomCode, playerToken);
+            return;
+        }
+
+        if (room.getStatus() != RoomStatus.IN_GAME) return;
 
         GameState state = gameRedisService.loadGameState(roomCode);
         if (state == null) return;
@@ -80,6 +91,54 @@ public class DisconnectEventListener {
                 sendGameOverDueToDisconnect(roomCode, room, playerToken);
             }
         }, REJOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    // A host who disconnects before the game starts otherwise leaves the guest stuck
+    // forever — no other timeout mechanism runs in the lobby (issue #31). Only a host
+    // disconnecting is handled: a guest disconnecting pre-game isn't a stuck state,
+    // since the host can still start without them. Solo rooms have no lobby to speak of.
+    private void handleLobbyDisconnect(Room room, String roomCode, String playerToken) {
+        if (room.isSoloRoom()) return;
+
+        Player player = playerRepository.findByPlayerToken(playerToken).orElse(null);
+        if (player == null || !player.isHost()) return;
+
+        log.info("Host {} disconnected from lobby room {} — starting {}-second rejoin window before host transfer",
+            playerToken, roomCode, REJOIN_TIMEOUT_SECONDS);
+        gameRedisService.markDisconnected(roomCode, playerToken);
+
+        timerExecutor.schedule(() -> {
+            if (gameRedisService.isDisconnected(roomCode, playerToken)) {
+                transferHostIfStillDisconnected(roomCode, playerToken);
+            }
+        }, REJOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private void transferHostIfStillDisconnected(String roomCode, String disconnectedHostToken) {
+        Room room = roomRepository.findByCode(roomCode).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.WAITING) return;
+
+        List<Player> players = playerRepository.findByRoomId(room.getId());
+        Player disconnectedHost = players.stream()
+            .filter(p -> p.getPlayerToken().equals(disconnectedHostToken))
+            .findFirst().orElse(null);
+        if (disconnectedHost == null || !disconnectedHost.isHost()) return;
+
+        Player newHost = players.stream()
+            .filter(p -> !p.getPlayerToken().equals(disconnectedHostToken))
+            .findFirst().orElse(null);
+        if (newHost == null) {
+            log.info("Host {} did not rejoin empty lobby room {} — nothing to transfer to", disconnectedHostToken, roomCode);
+            return;
+        }
+
+        disconnectedHost.setHost(false);
+        newHost.setHost(true);
+        playerRepository.save(disconnectedHost);
+        playerRepository.save(newHost);
+
+        log.info("Host did not rejoin lobby room {} — transferred host to player {}", roomCode, newHost.getId());
+        gameService.broadcastRoomState(roomCode);
     }
 
     private void sendGameOverDueToDisconnect(String roomCode, Room room, String disconnectedToken) {

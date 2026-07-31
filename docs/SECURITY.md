@@ -25,6 +25,7 @@ Values that must be reviewed outside local development:
 
 - `POSTGRES_PASSWORD`
 - `ADMIN_TOKEN`
+- `JWT_SECRET`
 - `GRAFANA_ADMIN_PASSWORD`
 - any future API keys, signing keys, or OAuth credentials
 

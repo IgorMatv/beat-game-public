@@ -59,8 +59,8 @@ public class GameService {
     }
 
     @Transactional
-    public void startGame(StartGameMessage msg, String playerToken) {
-        Room room = roomRepository.findByCode(msg.roomCode())
+    public void startGame(StartGameMessage msg, String playerToken, String roomCode) {
+        Room room = roomRepository.findByCode(roomCode)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
 
         Player host = playerRepository.findByPlayerToken(playerToken)
@@ -71,7 +71,7 @@ public class GameService {
 
         List<Track> tracks = trackService.getTracksForCategory(msg.category(), msg.categoryType(), msg.rounds());
         if (tracks.isEmpty()) {
-            messagingTemplate.convertAndSend("/topic/room." + msg.roomCode(),
+            messagingTemplate.convertAndSend("/topic/room." + roomCode,
                 new StartGameErrorMessage("No tracks available for " + msg.category() + " — try a different category."));
             return;
         }
@@ -94,23 +94,23 @@ public class GameService {
         gameSessionRepository.save(session);
 
         GameState state = new GameState(msg.rounds(), trackIds, msg.category(), msg.categoryType());
-        gameRedisService.storeGameState(msg.roomCode(), state);
-        gameRedisService.setCurrentRound(msg.roomCode(), 1);
+        gameRedisService.storeGameState(roomCode, state);
+        gameRedisService.setCurrentRound(roomCode, 1);
 
         // Resolve every round's preview URL once, up front, instead of live per round-start
         // (issue #5) — a slow/dead provider now only delays this screen, not every round
         // transition. A track whose preview fails to resolve just has no cache entry; its
         // round proceeds with previewUrl=null (frontend shows a "no preview" state).
         Map<String, String> previews = previewUrlResolverService.resolve(tracks);
-        gameRedisService.storePreviewUrls(msg.roomCode(), previews);
+        gameRedisService.storePreviewUrls(roomCode, previews);
 
         List<Player> players = playerRepository.findByRoomId(room.getId());
         for (Player p : players) {
-            gameRedisService.addScore(msg.roomCode(), p.getPlayerToken(), 0);
+            gameRedisService.addScore(roomCode, p.getPlayerToken(), 0);
         }
 
-        roundService.armRound1(msg.roomCode(), room.getMaxPlayers());
-        broadcastRoomState(msg.roomCode());
+        roundService.armRound1(roomCode, room.getMaxPlayers());
+        broadcastRoomState(roomCode);
     }
 
     public void broadcastRoomState(String roomCode) {

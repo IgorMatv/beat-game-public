@@ -1,5 +1,8 @@
 package com.beatgame.room;
 
+import com.beatgame.auth.AuthClaims;
+import com.beatgame.auth.JwtService;
+import com.beatgame.game.GameService;
 import com.beatgame.room.dto.CreateRoomResponse;
 import com.beatgame.room.dto.JoinRoomResponse;
 import com.beatgame.room.dto.RoomInfoResponse;
@@ -16,6 +19,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -25,6 +30,8 @@ class RoomControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean RoomService roomService;
+    @MockBean GameService gameService;
+    @MockBean JwtService jwtService;
 
     @Test
     void createRoom_returns201WithRoomCodeAndPlayerToken() throws Exception {
@@ -73,6 +80,59 @@ class RoomControllerTest {
 
         mockMvc.perform(get("/api/rooms/ZZZ999"))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void resetRoom_validTokenForThisRoom_returns204AndResetsGame() throws Exception {
+        when(jwtService.verify("guest-tok")).thenReturn(new AuthClaims("guest-tok", "ABC123"));
+
+        mockMvc.perform(post("/api/rooms/ABC123/reset")
+                .header("X-Player-Token", "guest-tok"))
+            .andExpect(status().isNoContent());
+
+        verify(gameService).resetRoom("ABC123");
+    }
+
+    @Test
+    void resetRoom_tokenForDifferentRoom_returns403AndDoesNotReset() throws Exception {
+        when(jwtService.verify("other-room-tok")).thenReturn(new AuthClaims("other-room-tok", "ZZZ999"));
+
+        mockMvc.perform(post("/api/rooms/ABC123/reset")
+                .header("X-Player-Token", "other-room-tok"))
+            .andExpect(status().isForbidden());
+
+        verify(gameService, never()).resetRoom(any());
+    }
+
+    @Test
+    void resetRoom_invalidToken_returns403AndDoesNotReset() throws Exception {
+        when(jwtService.verify("bad-tok")).thenThrow(new io.jsonwebtoken.security.SignatureException("bad signature"));
+
+        mockMvc.perform(post("/api/rooms/ABC123/reset")
+                .header("X-Player-Token", "bad-tok"))
+            .andExpect(status().isForbidden());
+
+        verify(gameService, never()).resetRoom(any());
+    }
+
+    @Test
+    void resetRoom_returns429AfterExceedingRateLimit() throws Exception {
+        when(jwtService.verify(any())).thenReturn(new AuthClaims("tok", "ABC123"));
+
+        // Use a distinct IP so this test's bucket is isolated from other tests
+        String ip = "10.0.1.3";
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(post("/api/rooms/ABC123/reset")
+                    .header("X-Forwarded-For", ip)
+                    .header("X-Player-Token", "tok"))
+                .andExpect(status().isNoContent());
+        }
+
+        // 11th request exceeds the 10/min reset bucket
+        mockMvc.perform(post("/api/rooms/ABC123/reset")
+                .header("X-Forwarded-For", ip)
+                .header("X-Player-Token", "tok"))
+            .andExpect(status().isTooManyRequests());
     }
 
     @Test

@@ -65,33 +65,33 @@ public class RoundService {
         return Math.max(100, (int)(1000.0 * (maxTime - timeMs) / maxTime));
     }
 
-    public void scheduleRoundTimeout(String roomCode, int round, int maxPlayers) {
+    public void scheduleRoundTimeout(String roomCode, int round, int maxPlayers, int delaySeconds) {
         ScheduledFuture<?> future = timerExecutor.schedule(
             () -> closeRound(roomCode, round, maxPlayers),
-            ROUND_SECONDS, TimeUnit.SECONDS);
+            delaySeconds, TimeUnit.SECONDS);
         pendingTimers.put(roomCode + ":" + round, future);
     }
 
-    public void submitAnswer(SubmitAnswerMessage msg, String playerToken) {
-        int currentRound = gameRedisService.getCurrentRound(msg.roomCode());
-        boolean firstAnswer = gameRedisService.markAnswered(msg.roomCode(), currentRound, playerToken);
+    public void submitAnswer(SubmitAnswerMessage msg, String playerToken, String roomCode) {
+        int currentRound = gameRedisService.getCurrentRound(roomCode);
+        boolean firstAnswer = gameRedisService.markAnswered(roomCode, currentRound, playerToken);
         if (!firstAnswer) return;
 
-        GameState state = gameRedisService.loadGameState(msg.roomCode());
+        GameState state = gameRedisService.loadGameState(roomCode);
         if (state == null) return;
 
         long correctTrackId = state.trackIds()[currentRound - 1];
         if (correctTrackId != msg.trackId()) return; // stale answer from a previous round
 
-        Room room = roomRepository.findByCode(msg.roomCode()).orElseThrow();
-        int correctIndex = gameRedisService.getCorrectIndex(msg.roomCode(), currentRound);
+        Room room = roomRepository.findByCode(roomCode).orElseThrow();
+        int correctIndex = gameRedisService.getCorrectIndex(roomCode, currentRound);
         boolean correct = correctIndex >= 0 && msg.answerIndex() == correctIndex;
         int score = calculateScore(correct, msg.timeMs());
-        gameRedisService.addScore(msg.roomCode(), playerToken, score);
+        gameRedisService.addScore(roomCode, playerToken, score);
 
-        long answers = gameRedisService.incrementAnswers(msg.roomCode(), currentRound);
+        long answers = gameRedisService.incrementAnswers(roomCode, currentRound);
         if (answers >= room.getMaxPlayers()) {
-            closeRound(msg.roomCode(), currentRound, room.getMaxPlayers());
+            closeRound(roomCode, currentRound, room.getMaxPlayers());
         }
     }
 
@@ -122,7 +122,8 @@ public class RoundService {
                     endGame(roomCode, room, scoresByPlayerId);
                 } else {
                     gameRedisService.setCurrentRound(roomCode, round + 1);
-                    scheduleReadyTimeout(roomCode, round + 1, maxPlayers);
+                    gameRedisService.markReadyStarted(roomCode, round + 1);
+                    scheduleReadyTimeout(roomCode, round + 1, maxPlayers, READY_TIMEOUT_SECONDS);
                 }
                 return null;
             });
@@ -131,12 +132,12 @@ public class RoundService {
         }
     }
 
-    public void handleReady(ReadyMessage msg, String playerToken, int maxPlayers) {
-        int currentRound = gameRedisService.getCurrentRound(msg.roomCode());
-        if (!gameRedisService.markReady(msg.roomCode(), currentRound, playerToken)) return;
-        long readyCount = gameRedisService.incrementReady(msg.roomCode(), currentRound);
+    public void handleReady(ReadyMessage msg, String playerToken, String roomCode, int maxPlayers) {
+        int currentRound = gameRedisService.getCurrentRound(roomCode);
+        if (!gameRedisService.markReady(roomCode, currentRound, playerToken)) return;
+        long readyCount = gameRedisService.incrementReady(roomCode, currentRound);
         if (readyCount >= maxPlayers) {
-            startNextRound(msg.roomCode(), currentRound, maxPlayers);
+            startNextRound(roomCode, currentRound, maxPlayers);
         }
     }
 
@@ -162,6 +163,13 @@ public class RoundService {
     // and the real startGame() broadcast would silently no-op.
     public void handleJoinAck(String roomCode, String playerToken, boolean gameInProgress, int maxPlayers) {
         gameRedisService.clearDisconnect(roomCode, playerToken);
+        // Lobby reconnects have no other way to learn current room state (e.g. after a
+        // host-transfer while they were offline) — STOMP topics don't replay messages sent
+        // while a client was disconnected (issue #31). In-game reconnects use game.sync
+        // instead, so this only fires pre-game.
+        if (!gameInProgress) {
+            gameService.broadcastRoomState(roomCode);
+        }
         long count = gameRedisService.incrementJoinAck(roomCode);
         if (gameInProgress && count >= maxPlayers) {
             startNextRound(roomCode, 1, maxPlayers);
@@ -181,17 +189,54 @@ public class RoundService {
             RoundStartMessage msg = gameService.buildRoundStartForRound(roomCode, round);
             gameRedisService.markRoundStarted(roomCode, round);
             messagingTemplate.convertAndSend("/topic/game." + roomCode, msg);
-            scheduleRoundTimeout(roomCode, round, maxPlayers);
+            scheduleRoundTimeout(roomCode, round, maxPlayers, ROUND_SECONDS);
         } catch (Exception e) {
             log.error("startNextRound failed for room {} round {}: {}", roomCode, round, e.getMessage(), e);
         }
     }
 
-    private void scheduleReadyTimeout(String roomCode, int nextRound, int maxPlayers) {
+    private void scheduleReadyTimeout(String roomCode, int nextRound, int maxPlayers, int delaySeconds) {
         ScheduledFuture<?> future = timerExecutor.schedule(
             () -> startNextRound(roomCode, nextRound, maxPlayers),
-            READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            delaySeconds, TimeUnit.SECONDS);
         pendingTimers.put(roomCode + ":ready:" + nextRound, future);
+    }
+
+    // Round/ready timers live only in JVM memory — a backend restart during an active
+    // game loses them even though the round data survives fine in Redis (issue #29).
+    // Called once at startup: for every room with an active GameState, figure out
+    // whether it's mid-round or mid-ready-wait and re-arm the matching timer with
+    // whatever time was actually left, instead of assuming a clean slate. Rooms in
+    // round 1's brief pre-arm join-gate window (armRound1) have no timestamp of their
+    // own yet — nothing reliable to resume there; the existing reconnect self-healing
+    // (handleJoinAck) already covers that narrow race.
+    public void resumeTimersAfterRestart() {
+        for (String roomCode : gameRedisService.findRoomCodesWithActiveGame()) {
+            try {
+                resumeTimerForRoom(roomCode);
+            } catch (Exception e) {
+                log.error("Failed to resume timer for room {}: {}", roomCode, e.getMessage(), e);
+            }
+        }
+    }
+
+    private void resumeTimerForRoom(String roomCode) {
+        Room room = roomRepository.findByCode(roomCode).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.IN_GAME) return;
+
+        int maxPlayers = room.getMaxPlayers();
+        int currentRound = gameRedisService.getCurrentRound(roomCode);
+
+        if (gameRedisService.roundHasStarted(roomCode, currentRound)) {
+            if (gameRedisService.roundIsClosed(roomCode, currentRound)) return;
+            int remaining = gameRedisService.getRoundRemainingSeconds(roomCode, currentRound, ROUND_SECONDS);
+            log.info("Resuming round timer: room={} round={} remainingSec={}", roomCode, currentRound, remaining);
+            scheduleRoundTimeout(roomCode, currentRound, maxPlayers, Math.max(remaining, 0));
+        } else if (gameRedisService.readyPhaseStarted(roomCode, currentRound)) {
+            int remaining = gameRedisService.getReadyRemainingSeconds(roomCode, currentRound, READY_TIMEOUT_SECONDS);
+            log.info("Resuming ready timer: room={} round={} remainingSec={}", roomCode, currentRound, remaining);
+            scheduleReadyTimeout(roomCode, currentRound, maxPlayers, Math.max(remaining, 0));
+        }
     }
 
     private void cancelAllTimersForRoom(String roomCode) {

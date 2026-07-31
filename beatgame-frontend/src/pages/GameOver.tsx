@@ -123,7 +123,10 @@ export default function GameOver() {
       // it (issue #35: a guest who clicked first could be stranded outside the room).
       if (roomCode) {
         try {
-          await fetch(`${API_BASE}/api/rooms/${roomCode}/reset`, { method: 'POST' })
+          await fetch(`${API_BASE}/api/rooms/${roomCode}/reset`, {
+            method: 'POST',
+            headers: { 'X-Player-Token': store.playerToken },
+          })
         } catch (err) {
           console.error('[GameOver] resetRoom failed', err)
         }

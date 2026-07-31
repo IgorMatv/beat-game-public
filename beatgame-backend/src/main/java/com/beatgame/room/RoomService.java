@@ -1,5 +1,6 @@
 package com.beatgame.room;
 
+import com.beatgame.auth.JwtService;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.player.PlayerService;
@@ -27,14 +28,17 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final PlayerService playerService;
     private final PlayerRepository playerRepository;
+    private final JwtService jwtService;
     private final SecureRandom random = new SecureRandom();
 
     public RoomService(RoomRepository roomRepository,
                        PlayerService playerService,
-                       PlayerRepository playerRepository) {
+                       PlayerRepository playerRepository,
+                       JwtService jwtService) {
         this.roomRepository = roomRepository;
         this.playerService = playerService;
         this.playerRepository = playerRepository;
+        this.jwtService = jwtService;
     }
 
     public CreateRoomResponse createRoom(String playerName) {
@@ -42,7 +46,7 @@ public class RoomService {
         Room room = buildRoom((short) 2);
         roomRepository.save(room);
         Player host = playerService.createPlayer(room, playerName, true);
-        return new CreateRoomResponse(room.getCode(), host.getPlayerToken(), host.getId());
+        return new CreateRoomResponse(room.getCode(), jwtService.issue(host.getPlayerToken(), room.getCode()), host.getId());
     }
 
     public CreateRoomResponse createSoloRoom(String playerName) {
@@ -50,7 +54,7 @@ public class RoomService {
         Room room = buildRoom((short) 1);
         roomRepository.save(room);
         Player player = playerService.createPlayer(room, playerName, true);
-        return new CreateRoomResponse(room.getCode(), player.getPlayerToken(), player.getId());
+        return new CreateRoomResponse(room.getCode(), jwtService.issue(player.getPlayerToken(), room.getCode()), player.getId());
     }
 
     public JoinRoomResponse joinRoom(String code, String playerName) {
@@ -71,7 +75,7 @@ public class RoomService {
         List<PlayerInfo> players = playerRepository.findByRoomId(room.getId()).stream()
                 .map(p -> new PlayerInfo(p.getId(), p.getName(), p.isHost()))
                 .toList();
-        return new JoinRoomResponse(player.getPlayerToken(), player.getId(), players);
+        return new JoinRoomResponse(jwtService.issue(player.getPlayerToken(), room.getCode()), player.getId(), players);
     }
 
     @Transactional(readOnly = true)

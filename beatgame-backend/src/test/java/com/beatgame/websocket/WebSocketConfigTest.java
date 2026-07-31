@@ -16,7 +16,7 @@ class WebSocketConfigTest {
 
     @Test
     void configureMessageBroker_setsStompHeartbeatOnSimpleBroker() {
-        WebSocketConfig config = new WebSocketConfig(mock(AuthChannelInterceptor.class));
+        WebSocketConfig config = new WebSocketConfig(mock(AuthChannelInterceptor.class), mock(WsRateLimitInterceptor.class));
         MessageBrokerRegistry registry = mock(MessageBrokerRegistry.class);
         SimpleBrokerRegistration registration = mock(SimpleBrokerRegistration.class);
         when(registry.enableSimpleBroker("/topic")).thenReturn(registration);

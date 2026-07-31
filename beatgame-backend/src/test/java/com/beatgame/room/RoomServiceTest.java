@@ -1,5 +1,6 @@
 package com.beatgame.room;
 
+import com.beatgame.auth.JwtService;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.player.PlayerService;
@@ -26,11 +27,12 @@ class RoomServiceTest {
     @Mock RoomRepository roomRepository;
     @Mock PlayerService playerService;
     @Mock PlayerRepository playerRepository;
+    @Mock JwtService jwtService;
     RoomService roomService;
 
     @BeforeEach
     void setUp() {
-        roomService = new RoomService(roomRepository, playerService, playerRepository);
+        roomService = new RoomService(roomRepository, playerService, playerRepository, jwtService);
     }
 
     @Test
@@ -98,10 +100,11 @@ class RoomServiceTest {
         when(roomRepository.existsByCode(any())).thenReturn(false);
         when(roomRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(playerService.createPlayer(any(), any(), anyBoolean())).thenReturn(playerWithToken("host-tok"));
+        when(jwtService.issue(eq("host-tok"), anyString())).thenReturn("signed-host-tok");
 
         CreateRoomResponse response = roomService.createRoom("Alice");
 
-        assertThat(response.playerToken()).isEqualTo("host-tok");
+        assertThat(response.playerToken()).isEqualTo("signed-host-tok");
         assertThat(response.playerId()).isEqualTo(42L);
         verify(playerService).createPlayer(any(), eq("Alice"), eq(true));
     }
@@ -130,10 +133,11 @@ class RoomServiceTest {
         when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
         when(playerRepository.countByRoomId(any())).thenReturn(1L);
         when(playerService.createPlayer(any(), any(), anyBoolean())).thenReturn(playerWithToken("guest-tok"));
+        when(jwtService.issue("guest-tok", "ABC123")).thenReturn("signed-guest-tok");
 
         JoinRoomResponse response = roomService.joinRoom("ABC123", "Bob");
 
-        assertThat(response.playerToken()).isEqualTo("guest-tok");
+        assertThat(response.playerToken()).isEqualTo("signed-guest-tok");
         assertThat(response.playerId()).isEqualTo(42L);
         verify(playerService).createPlayer(any(), eq("Bob"), eq(false));
     }

@@ -125,10 +125,14 @@ export const useGameStore = create<GameStore>((set) => ({
     phase: 'answer_reveal',
   })),
 
-  applyRoomState: (msg) => set((s) => ({
-    lobbyPlayers: msg.players,
-    phase: s.phase === 'home' || s.phase === 'lobby' ? 'lobby' : s.phase,
-  })),
+  applyRoomState: (msg) => set((s) => {
+    const mine = msg.players.find((p) => String(p.id) === s.playerId)
+    return {
+      lobbyPlayers: msg.players,
+      isHost: mine ? mine.isHost : s.isHost,
+      phase: s.phase === 'home' || s.phase === 'lobby' ? 'lobby' : s.phase,
+    }
+  }),
 
   applyRoomConfig: (msg) => set({
     gameConfig: { rounds: msg.rounds, category: msg.category, categoryType: msg.categoryType as CategoryType },
