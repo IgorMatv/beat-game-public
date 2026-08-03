@@ -1,90 +1,54 @@
-# 🧭 Architecture
+# Architecture
 
-> How BeatGame moves data from the browser to the game engine, persistence layer, and observability stack.
+BeatGame is a real-time, two-player (or solo) music-guessing game: players listen to a short track preview and race to pick the correct title and artist from a set of options before the round timer runs out. This doc covers how the running system is put together — not the code layout in exhaustive detail, just enough to understand the shape of it.
 
-[← Back to README](../README.md) · [Local development](LOCAL_DEVELOPMENT.md) · [WebSocket reliability](WEBSOCKET_RELIABILITY.md)
+## Components
 
-## System at a glance
-
-BeatGame is a small distributed system packaged as one Docker Compose stack. Nginx serves the React application and provides a single entry point for REST and WebSocket traffic; Spring Boot owns the game rules and coordinates durable and transient state.
+| Component | Stack | Role |
+|---|---|---|
+| Backend | Spring Boot 3 / Java 21 | REST API, STOMP WebSocket server, game logic, persistence, track catalog |
+| Frontend | React 18 / TypeScript / Vite | Single-page app: room UI, gameplay screen, WebSocket client, audio playback |
+| Nginx | bundled with the frontend image | Serves the built SPA, reverse-proxies `/api` and `/ws` to the backend |
+| PostgreSQL | `postgres:16` | Durable storage — rooms, players, tracks, game session history |
+| Redis | `redis:7-alpine` | Live game state — current round, scores, readiness, disconnect markers, preview-URL cache |
+| Deezer API / iTunes Search API | third-party | Track metadata and 30-second preview audio |
+| Prometheus + Grafana | local Docker Compose only | Metrics scraping and dashboards for local development; not part of the production stack |
 
 ```mermaid
 flowchart LR
-    Browser["🌐 React client"]
+    Browser["🌐 React SPA"]
     Nginx["Nginx<br/>static files + reverse proxy"]
-    API["Spring Boot<br/>REST + STOMP"]
-    DB[(PostgreSQL<br/>durable state)]
-    Cache[(Redis<br/>live game state)]
-    Prom["Prometheus"]
-    Grafana["Grafana"]
+    Backend["Spring Boot<br/>REST + STOMP WebSocket"]
+    DB[("PostgreSQL<br/>rooms · players · tracks")]
+    Cache[("Redis<br/>live game state")]
+    Deezer["Deezer API"]
+    Itunes["iTunes Search API"]
 
-    Browser -- "HTTP / WebSocket" --> Nginx
-    Nginx -- "/api · /ws" --> API
-    API -- "JPA" --> DB
-    API -- "scores · rounds · presence" --> Cache
-    Prom -- "scrape /actuator/prometheus" --> API
-    Grafana -- "query" --> Prom
+    Browser -- "HTTP + WebSocket" --> Nginx
+    Nginx -- "/api/*" --> Backend
+    Nginx -- "/ws" --> Backend
+    Backend -- "JPA" --> DB
+    Backend -- "RedisTemplate" --> Cache
+    Backend -- "track catalog fetch" --> Deezer
+    Backend -- "track catalog fetch" --> Itunes
 ```
 
-## Responsibility map
+## Backend shape
 
-| Layer | Owns | Key technology |
-|---|---|---|
-| Browser | Navigation, lobby UI, audio playback, local game state | React, TypeScript, Zustand |
-| Edge | SPA delivery and API/WebSocket proxying | Nginx |
-| Application | Rooms, players, rounds, scoring, catalog and events | Spring Boot |
-| Durable storage | Rooms, players and track catalog | PostgreSQL, Flyway |
-| Runtime storage | Active game state, scores, readiness and disconnect markers | Redis |
-| Telemetry | Metrics collection and dashboards | Actuator, Prometheus, Grafana |
+The backend is organized by domain, not by technical layer — there's no repo-wide `controller`/`service`/`repository` split. Each feature area (`game`, `room`, `player`, `track`, `websocket`, `auth`) owns its own entities, services, and (where relevant) REST or STOMP handlers. A small `config` package supplies shared infrastructure beans — the Redis client, the HTTP clients used to call Deezer/iTunes, the scheduled-task executor behind round timers.
 
-## Backend map
+## State: Postgres for identity, Redis for gameplay
 
-The backend is organized by domain rather than by technical layer:
+Two different kinds of state exist, and they're stored differently on purpose. **Postgres holds identity that has to survive** — rooms, players, and the track catalog itself are durable records; a room still exists if the backend restarts mid-game. **Redis holds the game while it's actually being played** — current round, scores, readiness, disconnect timers, a short-lived preview-URL cache. Postgres never sees a write mid-round; every round's read/write traffic hits Redis only. Round timers are JVM-local, but active timers are re-armed after a restart from timestamps stored in Redis. See [Design Decisions](DESIGN_DECISIONS.md) for why it's split this way.
 
-| Package | Responsibility |
-|---|---|
-| `com.beatgame.room` | Room creation, joining, status and cleanup |
-| `com.beatgame.player` | Player records and player tokens |
-| `com.beatgame.game` | Round orchestration, scoring and Redis-backed state |
-| `com.beatgame.track` | Catalog, genres, decades, providers and preview resolution |
-| `com.beatgame.websocket` | STOMP endpoint, inbound session context and game events |
-| `com.beatgame.config` | Redis, REST clients, rate limiting and application wiring |
+## Real-time protocol, at a glance
 
-> **Storage boundary:** PostgreSQL holds data that should outlive a game process. Redis holds state that must be fast during a live match. Some round timers still live in the Java process; see [WebSocket reliability](WEBSOCKET_RELIABILITY.md#server-restart).
+The frontend and backend talk over two channels:
+- **REST** for one-shot actions — create a room, join a room, look up genres/decades.
+- **STOMP over WebSocket** (via SockJS) for the game itself — round start, answer submission, round results, game over. Clients subscribe to `/topic/room.{code}` and `/topic/game.{code}` for their room; the server pushes every update, nobody polls.
 
-## Frontend map
+WebSocket was the natural fit here over polling: both players need to see the round timer, the opponent's readiness, and the round result within the same second it happens, and a poll-based client would either lag behind or hammer the server to stay current. A single persistent connection per player does that for free.
 
-| Area | Role |
-|---|---|
-| `src/pages` | Home, lobby, solo configuration, gameplay and results |
-| `src/components` | Reusable game UI such as timer, scoreboard and audio player |
-| `src/hooks/useWebSocket.ts` | STOMP/SockJS lifecycle, subscriptions and event publishing |
-| `src/store/useGameStore.ts` | Client-side game state and player identity |
-| `src/types` | REST and WebSocket payload shapes |
+## What this system doesn't do
 
-## Real-time message flow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant W as Spring WebSocket
-    participant G as Game services
-    participant R as Redis
-
-    C->>W: CONNECT { playerToken, roomCode }
-    C->>W: SUBSCRIBE /topic/room.{code}
-    C->>W: SUBSCRIBE /topic/game.{code}
-    C->>W: SEND /app/game.answer
-    W->>G: Validate session and handle command
-    G->>R: Update answer / score / round state
-    G-->>W: Game event
-    W-->>C: MESSAGE /topic/game.{code}
-```
-
-Clients publish commands below `/app`—for example `game.start`, `game.answer`, `game.ready`, `game.rejoin`, `room.config`, and `game.pause`. The server broadcasts room and game updates on room-scoped `/topic` destinations.
-
-## Deployment shape
-
-Docker Compose starts six services: `frontend`, `backend`, `postgres`, `redis`, `prometheus`, and `grafana`. Only the frontend and loopback-bound Grafana port are published by default; the remaining services communicate on the internal Docker network.
-
-For startup instructions, configuration values, and useful commands, continue with [Local development](LOCAL_DEVELOPMENT.md).
+No user accounts, no persistent player history across sessions, no payments, no content hosting — track audio is streamed from third-party preview URLs, never stored by this system. Player identity is a short-lived guest credential (see [Design Decisions](DESIGN_DECISIONS.md)), good for one browser session.
