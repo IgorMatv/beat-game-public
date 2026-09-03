@@ -14,6 +14,8 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     boolean existsByCode(String code);
 
+    long countByStatusIn(List<RoomStatus> statuses);
+
     @Query("""
         SELECT r FROM Room r
         WHERE r.status IN ('WAITING', 'FINISHED')

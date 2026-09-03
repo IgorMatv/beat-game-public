@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -35,6 +36,7 @@ public class GameService {
     private final RoundService roundService;
     private final ObjectMapper objectMapper;
     private final PreviewUrlResolverService previewUrlResolverService;
+    private final GameMetrics gameMetrics;
 
     public GameService(TrackService trackService,
                        TrackRepository trackRepository,
@@ -45,7 +47,8 @@ public class GameService {
                        SimpMessagingTemplate messagingTemplate,
                        RoundService roundService,
                        ObjectMapper objectMapper,
-                       PreviewUrlResolverService previewUrlResolverService) {
+                       PreviewUrlResolverService previewUrlResolverService,
+                       GameMetrics gameMetrics) {
         this.trackService = trackService;
         this.trackRepository = trackRepository;
         this.gameSessionRepository = gameSessionRepository;
@@ -56,6 +59,7 @@ public class GameService {
         this.roundService = roundService;
         this.objectMapper = objectMapper;
         this.previewUrlResolverService = previewUrlResolverService;
+        this.gameMetrics = gameMetrics;
     }
 
     @Transactional
@@ -87,6 +91,7 @@ public class GameService {
         room.setConfig(config);
         room.setStatus(RoomStatus.IN_GAME);
         roomRepository.save(room);
+        gameMetrics.incrementGamesStarted();
 
         GameSession session = new GameSession();
         session.setRoom(room);

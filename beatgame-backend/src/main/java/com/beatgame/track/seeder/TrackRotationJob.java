@@ -3,6 +3,7 @@ package com.beatgame.track.seeder;
 import com.beatgame.track.Genre;
 import com.beatgame.track.Track;
 import com.beatgame.track.TrackRepository;
+import com.beatgame.track.admin.TrackPopulationService;
 import com.beatgame.track.provider.TrackProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,14 +22,18 @@ public class TrackRotationJob {
     private static final Logger log = LoggerFactory.getLogger(TrackRotationJob.class);
     private static final int MIN_ACTIVE_TRACKS = 20;
     private static final double MAX_ARCHIVE_RATIO = 0.2;
+    static final int UKRAINIAN_REPLENISH_TRACKS_PER_ARTIST = 10;
 
     private final TrackRepository trackRepository;
     private final TrackProvider deezerProvider;
+    private final TrackPopulationService trackPopulationService;
 
     public TrackRotationJob(TrackRepository trackRepository,
-                            @Qualifier("deezerProvider") TrackProvider deezerProvider) {
+                            @Qualifier("deezerProvider") TrackProvider deezerProvider,
+                            TrackPopulationService trackPopulationService) {
         this.trackRepository = trackRepository;
         this.deezerProvider = deezerProvider;
+        this.trackPopulationService = trackPopulationService;
     }
 
     @Scheduled(cron = "0 0 3 1 * *")
@@ -55,19 +60,27 @@ public class TrackRotationJob {
             }
 
             if (!toArchive.isEmpty()) {
-                try {
-                    List<Track> fresh = deezerProvider.fetchByGenre(genre, toArchive.size() * 2, 100);
-                    if (!fresh.isEmpty()) {
-                        String provider = fresh.get(0).getProvider();
-                        List<String> ids = fresh.stream().map(Track::getExternalId).toList();
-                        Set<String> existing = trackRepository.findExistingExternalIds(ids, provider);
-                        List<Track> toSave = fresh.stream().filter(t -> !existing.contains(t.getExternalId())).toList();
-                        if (!toSave.isEmpty()) {
-                            trackRepository.saveAll(toSave);
-                        }
+                if (genre == Genre.UKRAINIAN) {
+                    try {
+                        trackPopulationService.populateUkrainian(UKRAINIAN_REPLENISH_TRACKS_PER_ARTIST);
+                    } catch (Exception e) {
+                        log.warn("Failed to replenish Ukrainian tracks", e);
                     }
-                } catch (Exception e) {
-                    log.warn("Failed to fetch replacements for {}", genre, e);
+                } else {
+                    try {
+                        List<Track> fresh = deezerProvider.fetchByGenre(genre, toArchive.size() * 2, 100);
+                        if (!fresh.isEmpty()) {
+                            String provider = fresh.get(0).getProvider();
+                            List<String> ids = fresh.stream().map(Track::getExternalId).toList();
+                            Set<String> existing = trackRepository.findExistingExternalIds(ids, provider);
+                            List<Track> toSave = fresh.stream().filter(t -> !existing.contains(t.getExternalId())).toList();
+                            if (!toSave.isEmpty()) {
+                                trackRepository.saveAll(toSave);
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to fetch replacements for {}", genre, e);
+                    }
                 }
             }
         }

@@ -3,6 +3,8 @@ package com.beatgame.track.seeder;
 import com.beatgame.track.Genre;
 import com.beatgame.track.Track;
 import com.beatgame.track.TrackRepository;
+import com.beatgame.track.admin.PopulateAllResult;
+import com.beatgame.track.admin.TrackPopulationService;
 import com.beatgame.track.provider.TrackProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +26,7 @@ class TrackRotationJobTest {
 
     @Mock TrackRepository trackRepository;
     @Mock TrackProvider deezerProvider;
+    @Mock TrackPopulationService trackPopulationService;
 
     @InjectMocks
     TrackRotationJob rotationJob;
@@ -50,6 +53,24 @@ class TrackRotationJobTest {
             .anyMatch(t -> "old-1".equals(t.getExternalId()) && t.isArchived());
         assertThat(archivedCandidateSaved).isTrue();
         verify(trackRepository, atLeastOnce()).saveAll(List.of(fresh));
+    }
+
+    @Test
+    void rotate_ukrainian_replenishesViaArtistPopulation_insteadOfGenreFetch() {
+        Track candidate = new Track();
+        candidate.setExternalId("uk-old-1");
+        candidate.setProvider("DEEZER");
+        when(trackRepository.countByGenreAndArchivedFalse(any())).thenReturn(0L);
+        when(trackRepository.countByGenreAndArchivedFalse(Genre.UKRAINIAN)).thenReturn(100L);
+        when(trackRepository.findArchiveCandidatesByGenre(eq(Genre.UKRAINIAN), any(), any()))
+            .thenReturn(List.of(candidate));
+        when(trackPopulationService.populateUkrainian(anyInt()))
+            .thenReturn(new PopulateAllResult(0, 0, 0, List.of()));
+
+        rotationJob.rotate();
+
+        verify(trackPopulationService).populateUkrainian(TrackRotationJob.UKRAINIAN_REPLENISH_TRACKS_PER_ARTIST);
+        verify(deezerProvider, never()).fetchByGenre(eq(Genre.UKRAINIAN), anyInt(), anyInt());
     }
 
     @Test

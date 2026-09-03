@@ -4,6 +4,7 @@ package com.beatgame.track.seeder;
 import com.beatgame.track.Decade;
 import com.beatgame.track.Genre;
 import com.beatgame.track.TrackImportService;
+import com.beatgame.track.admin.TrackPopulationService;
 import com.beatgame.track.provider.TrackProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,17 +21,21 @@ public class InitialDataSeeder {
     private static final Logger log = LoggerFactory.getLogger(InitialDataSeeder.class);
     private static final int PAGE_SIZE = 25;
     static final int PAGES_PER_CATEGORY = 4;
+    static final int UKRAINIAN_TRACKS_PER_ARTIST = 50;
 
     private final TrackImportService trackImportService;
     private final TrackProvider deezerProvider;
     private final TrackProvider itunesProvider;
+    private final TrackPopulationService trackPopulationService;
 
     public InitialDataSeeder(TrackImportService trackImportService,
                              @Qualifier("deezerProvider") TrackProvider deezerProvider,
-                             @Qualifier("itunesProvider") TrackProvider itunesProvider) {
+                             @Qualifier("itunesProvider") TrackProvider itunesProvider,
+                             TrackPopulationService trackPopulationService) {
         this.trackImportService = trackImportService;
         this.deezerProvider = deezerProvider;
         this.itunesProvider = itunesProvider;
+        this.trackPopulationService = trackPopulationService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -41,6 +46,11 @@ public class InitialDataSeeder {
         }
         log.info("Starting initial track seeding...");
         for (Genre genre : Genre.values()) {
+            if (genre == Genre.UKRAINIAN) {
+                tryFetch(() -> trackPopulationService.populateUkrainian(UKRAINIAN_TRACKS_PER_ARTIST),
+                        "Ukrainian artist population");
+                continue;
+            }
             tryFetch(() -> {
                 for (int page = 0; page < PAGES_PER_CATEGORY; page++) {
                     trackImportService.saveNewTracks(deezerProvider.fetchByGenre(genre, PAGE_SIZE, page * PAGE_SIZE));

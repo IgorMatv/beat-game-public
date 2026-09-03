@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -45,6 +46,7 @@ class RoundServiceTest {
     @Mock ScheduledExecutorService timerExecutor;
     @Mock GameService gameService;
     @Mock PlatformTransactionManager transactionManager;
+    @Mock GameMetrics gameMetrics;
 
     RoundService roundService;
 
@@ -53,7 +55,8 @@ class RoundServiceTest {
         lenient().when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         lenient().when(timerExecutor.schedule(any(Runnable.class), anyLong(), any())).thenReturn(mock(java.util.concurrent.ScheduledFuture.class));
         roundService = new RoundService(gameRedisService, gameSessionRepository, roomRepository,
-            playerRepository, trackRepository, messagingTemplate, timerExecutor, gameService, transactionManager);
+            playerRepository, trackRepository, messagingTemplate, timerExecutor, gameService, transactionManager,
+            gameMetrics);
     }
 
     @Test
@@ -231,6 +234,36 @@ class RoundServiceTest {
     }
 
     @Test
+    void submitAnswer_closesRoundAndEndsGame_incrementsGamesCompletedMetric() {
+        Room room = roomWithCode("ABC123", 1);
+        GameState state = new GameState(1, new Long[]{1L}, "POP", "GENRE");
+        Player player = new Player();
+        player.setPlayerToken("tok");
+        ReflectionTestUtils.setField(player, "id", 5L);
+        Track track = new Track();
+        track.setTitle("T");
+        track.setArtist("A");
+        ReflectionTestUtils.setField(track, "id", 1L);
+
+        when(gameRedisService.markAnswered(any(), anyInt(), any())).thenReturn(true);
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(1);
+        when(gameRedisService.loadGameState("ABC123")).thenReturn(state);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
+        when(gameRedisService.incrementAnswers("ABC123", 1)).thenReturn(1L);
+        when(gameRedisService.claimRoundClose("ABC123", 1)).thenReturn(true);
+        when(playerRepository.findByRoomId(any())).thenReturn(List.of(player));
+        when(trackRepository.findById(1L)).thenReturn(Optional.of(track));
+        when(gameRedisService.getScoresByPlayerId(any(), any())).thenReturn(Map.of("5", 750));
+        when(gameSessionRepository.findTopByRoomIdOrderByStartedAtDesc(any())).thenReturn(Optional.empty());
+
+        roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 5000), "tok", "ABC123");
+
+        // endGame() runs synchronously inside closeRound() — only the GameOverMessage
+        // broadcast itself is scheduled for 4s later — so the metric increments immediately.
+        verify(gameMetrics).incrementGamesCompleted("finished");
+    }
+
+    @Test
     void armRound1_soloRoom_startsImmediatelyWithoutCheckingJoinAcks() {
         when(gameRedisService.claimRoundStart("ABC123", 1)).thenReturn(true);
         RoundStartMessage msg = new RoundStartMessage(1, 3, 1L, "url", List.of("a", "b", "c", "d"), 15, Map.of());
@@ -332,6 +365,28 @@ class RoundServiceTest {
         roundService.handleJoinAck("ABC123", "tok", false, 2);
 
         verify(gameRedisService).clearDisconnect("ABC123", "tok");
+    }
+
+    @Test
+    void handleJoinAck_genuineReconnect_incrementsReconnectMetric() {
+        // clearDisconnect returning true means a disconnect flag actually existed —
+        // this is a real reconnect, not just a first-time join.
+        when(gameRedisService.incrementJoinAck("ABC123")).thenReturn(1L);
+        when(gameRedisService.clearDisconnect("ABC123", "tok")).thenReturn(true);
+
+        roundService.handleJoinAck("ABC123", "tok", false, 2);
+
+        verify(gameMetrics).incrementReconnects();
+    }
+
+    @Test
+    void handleJoinAck_freshJoin_doesNotIncrementReconnectMetric() {
+        when(gameRedisService.incrementJoinAck("ABC123")).thenReturn(1L);
+        when(gameRedisService.clearDisconnect("ABC123", "tok")).thenReturn(false);
+
+        roundService.handleJoinAck("ABC123", "tok", false, 2);
+
+        verify(gameMetrics, never()).incrementReconnects();
     }
 
     @Test

@@ -131,10 +131,21 @@ class GameRedisServiceTest {
     }
 
     @Test
-    void clearDisconnect_deletesKey() {
-        service.clearDisconnect("ABC123", "tok");
+    void clearDisconnect_returnsTrue_whenKeyExisted() {
+        when(redisTemplate.delete("disconnect:ABC123:tok")).thenReturn(true);
 
-        verify(redisTemplate).delete("disconnect:ABC123:tok");
+        boolean cleared = service.clearDisconnect("ABC123", "tok");
+
+        assertThat(cleared).isTrue();
+    }
+
+    @Test
+    void clearDisconnect_returnsFalse_whenKeyDidNotExist() {
+        when(redisTemplate.delete("disconnect:ABC123:tok")).thenReturn(false);
+
+        boolean cleared = service.clearDisconnect("ABC123", "tok");
+
+        assertThat(cleared).isFalse();
     }
 
     @Test

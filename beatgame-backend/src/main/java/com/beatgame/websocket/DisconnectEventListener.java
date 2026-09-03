@@ -3,6 +3,7 @@ package com.beatgame.websocket;
 import com.beatgame.game.GameRedisService;
 import com.beatgame.game.GameService;
 import com.beatgame.game.GameState;
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -34,19 +35,22 @@ public class DisconnectEventListener {
     private final SimpMessagingTemplate messagingTemplate;
     private final ScheduledExecutorService timerExecutor;
     private final GameService gameService;
+    private final GameMetrics gameMetrics;
 
     public DisconnectEventListener(GameRedisService gameRedisService,
                                    RoomRepository roomRepository,
                                    PlayerRepository playerRepository,
                                    SimpMessagingTemplate messagingTemplate,
                                    ScheduledExecutorService gameTimerExecutor,
-                                   GameService gameService) {
+                                   GameService gameService,
+                                   GameMetrics gameMetrics) {
         this.gameRedisService = gameRedisService;
         this.roomRepository = roomRepository;
         this.playerRepository = playerRepository;
         this.messagingTemplate = messagingTemplate;
         this.timerExecutor = gameTimerExecutor;
         this.gameService = gameService;
+        this.gameMetrics = gameMetrics;
     }
 
     @EventListener
@@ -158,6 +162,10 @@ public class DisconnectEventListener {
         if (winnerPlayerId == null) {
             log.warn("No remaining player found to declare as winner in room {}", roomCode);
         }
+
+        room.setStatus(RoomStatus.FINISHED);
+        roomRepository.save(room);
+        gameMetrics.incrementGamesCompleted("forfeited");
 
         messagingTemplate.convertAndSend("/topic/game." + roomCode,
             new GameOverMessage(scoresByPlayerId, winnerPlayerId));

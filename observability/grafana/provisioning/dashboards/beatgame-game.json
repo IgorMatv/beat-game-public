@@ -1,0 +1,184 @@
+{
+  "id": null,
+  "uid": "beatgame-game",
+  "title": "BeatGame - Game Metrics",
+  "description": "Custom application metrics from GameMetrics (rooms, players, games, reconnects) plus track-provider health from Resilience4j's circuit breaker metrics.",
+  "tags": ["beatgame"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Active Rooms",
+      "description": "Rooms currently WAITING or IN_GAME.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "beatgame_rooms_active",
+          "legendFormat": "active rooms"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Players Connected",
+      "description": "Live STOMP sessions (SessionConnectedEvent minus SessionDisconnectEvent).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "beatgame_players_connected",
+          "legendFormat": "players connected"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Games Started (rate/5m)",
+      "description": "GameService.startGame() — every game that actually started, success path only (not counted when a category has zero tracks).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(beatgame_games_started_total[5m])",
+          "legendFormat": "started/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Games Completed by Outcome (rate/5m)",
+      "description": "finished = reached the last round naturally (RoundService.endGame()). forfeited = the other player never rejoined within 60s (DisconnectEventListener.sendGameOverDueToDisconnect()).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(beatgame_games_completed_total[5m])",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Reconnects (rate/5m)",
+      "description": "Genuine reconnects only — RoundService.handleJoinAck() when a disconnect flag actually existed, not every join.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(beatgame_reconnects_total[5m])",
+          "legendFormat": "reconnects/s"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Game Completion Rate",
+      "description": "sum(rate(games_completed_total)) / rate(games_started_total) — both outcomes (finished + forfeited) count as \"completed\" here, since both are a real game ending, not an abandoned/stuck room. Can dip below 100% or spike above it over short windows since numerator and denominator are two independent counters sampled over the same rolling 5m window, not a strict per-game ratio.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(beatgame_games_completed_total[5m])) / rate(beatgame_games_started_total[5m]) * 100",
+          "legendFormat": "completion rate"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Track Provider Failure Rate",
+      "description": "Deezer/iTunes circuit breaker failed-call rate (resilience4j_circuitbreaker_calls_seconds_count{kind=\"failed\"}) — not a custom beatgame_ metric, reused from #5's Resilience4j instrumentation.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(resilience4j_circuitbreaker_calls_seconds_count{kind=\"failed\"}[5m])",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Track Provider Avg Latency",
+      "description": "Average successful-call latency per provider (sum/count over 5m — resilience4j_circuitbreaker_calls_seconds_{sum,count}).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(resilience4j_circuitbreaker_calls_seconds_sum{kind=\"successful\"}[5m]) / rate(resilience4j_circuitbreaker_calls_seconds_count{kind=\"successful\"}[5m])",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    }
+  ]
+}

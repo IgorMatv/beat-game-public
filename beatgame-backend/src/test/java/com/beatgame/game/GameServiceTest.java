@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -42,6 +43,7 @@ class GameServiceTest {
     @Mock SimpMessagingTemplate messagingTemplate;
     @Mock RoundService roundService;
     @Mock PreviewUrlResolverService previewUrlResolverService;
+    @Mock GameMetrics gameMetrics;
 
     GameService gameService;
 
@@ -49,7 +51,8 @@ class GameServiceTest {
     void setUp() {
         gameService = new GameService(trackService, trackRepository, gameSessionRepository,
             roomRepository, playerRepository, gameRedisService, messagingTemplate, roundService,
-            new ObjectMapper().registerModule(new ParameterNamesModule()), previewUrlResolverService);
+            new ObjectMapper().registerModule(new ParameterNamesModule()), previewUrlResolverService,
+            gameMetrics);
     }
 
     @Test
@@ -66,6 +69,21 @@ class GameServiceTest {
 
         assertThat(room.getStatus()).isEqualTo(RoomStatus.IN_GAME);
         verify(roomRepository).save(room);
+    }
+
+    @Test
+    void startGame_incrementsGamesStartedMetric() {
+        Room room = roomWithCode("ABC123");
+        Player host = hostPlayer(room, "host-tok");
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
+        when(playerRepository.findByPlayerToken("host-tok")).thenReturn(Optional.of(host));
+        when(playerRepository.findByRoomId(any())).thenReturn(List.of(host));
+        when(trackService.getTracksForCategory("POP", "GENRE", 3)).thenReturn(List.of(track(1L), track(2L), track(3L)));
+        when(gameSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "host-tok", "ABC123");
+
+        verify(gameMetrics).incrementGamesStarted();
     }
 
     @Test
@@ -146,6 +164,7 @@ class GameServiceTest {
         assertThat(room.getStatus()).isEqualTo(RoomStatus.WAITING);
         verify(roomRepository, never()).save(any());
         verify(roundService, never()).armRound1(any(), anyInt());
+        verify(gameMetrics, never()).incrementGamesStarted();
     }
 
     @Test

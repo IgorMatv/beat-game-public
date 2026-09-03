@@ -1,5 +1,6 @@
 package com.beatgame.game;
 
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -36,6 +37,7 @@ public class RoundService {
     private final ScheduledExecutorService timerExecutor;
     private final GameService gameService;
     private final TransactionTemplate transactionTemplate;
+    private final GameMetrics gameMetrics;
 
     private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingTimers = new ConcurrentHashMap<>();
 
@@ -47,7 +49,8 @@ public class RoundService {
                         SimpMessagingTemplate messagingTemplate,
                         ScheduledExecutorService gameTimerExecutor,
                         @org.springframework.context.annotation.Lazy GameService gameService,
-                        PlatformTransactionManager transactionManager) {
+                        PlatformTransactionManager transactionManager,
+                        GameMetrics gameMetrics) {
         this.gameRedisService = gameRedisService;
         this.gameSessionRepository = gameSessionRepository;
         this.roomRepository = roomRepository;
@@ -57,6 +60,7 @@ public class RoundService {
         this.timerExecutor = gameTimerExecutor;
         this.gameService = gameService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.gameMetrics = gameMetrics;
     }
 
     public int calculateScore(boolean correct, int timeMs) {
@@ -162,7 +166,9 @@ public class RoundService {
     // connect before the host clicks Start would consume round 1's idempotency claim early
     // and the real startGame() broadcast would silently no-op.
     public void handleJoinAck(String roomCode, String playerToken, boolean gameInProgress, int maxPlayers) {
-        gameRedisService.clearDisconnect(roomCode, playerToken);
+        if (gameRedisService.clearDisconnect(roomCode, playerToken)) {
+            gameMetrics.incrementReconnects();
+        }
         // Lobby reconnects have no other way to learn current room state (e.g. after a
         // host-transfer while they were offline) — STOMP topics don't replay messages sent
         // while a client was disconnected (issue #31). In-game reconnects use game.sync
@@ -251,6 +257,7 @@ public class RoundService {
 
     private void endGame(String roomCode, Room room, Map<String, Integer> scoresByPlayerId) {
         cancelAllTimersForRoom(roomCode);
+        gameMetrics.incrementGamesCompleted("finished");
 
         String winnerPlayerId = scoresByPlayerId.entrySet().stream()
             .max(Map.Entry.comparingByValue())

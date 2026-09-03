@@ -5,6 +5,7 @@ import com.beatgame.track.Decade;
 import com.beatgame.track.Genre;
 import com.beatgame.track.Track;
 import com.beatgame.track.TrackImportService;
+import com.beatgame.track.admin.TrackPopulationService;
 import com.beatgame.track.provider.TrackProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,12 +24,13 @@ class InitialDataSeederTest {
     @Mock TrackImportService trackImportService;
     @Mock TrackProvider deezerProvider;
     @Mock TrackProvider itunesProvider;
+    @Mock TrackPopulationService trackPopulationService;
 
     InitialDataSeeder seeder;
 
     @BeforeEach
     void setUp() {
-        seeder = new InitialDataSeeder(trackImportService, deezerProvider, itunesProvider);
+        seeder = new InitialDataSeeder(trackImportService, deezerProvider, itunesProvider, trackPopulationService);
     }
 
     @Test
@@ -54,12 +56,27 @@ class InitialDataSeederTest {
 
         seeder.seed();
 
-        int genrePages = Genre.values().length * InitialDataSeeder.PAGES_PER_CATEGORY;
+        int genresWithGenreFetch = Genre.values().length - 1; // UKRAINIAN uses artist-based population instead
+        int genrePages = genresWithGenreFetch * InitialDataSeeder.PAGES_PER_CATEGORY;
         int decadePages = Decade.values().length * InitialDataSeeder.PAGES_PER_CATEGORY;
         verify(deezerProvider, times(genrePages)).fetchByGenre(any(Genre.class), eq(25), anyInt());
         verify(itunesProvider, times(genrePages)).fetchByGenre(any(Genre.class), eq(25), anyInt());
         verify(deezerProvider, times(decadePages)).fetchByDecade(any(Decade.class), eq(25), anyInt());
         verify(itunesProvider, never()).fetchByDecade(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void seed_populatesUkrainianViaArtistFetch_insteadOfGenreFetch() {
+        when(trackImportService.count()).thenReturn(0L);
+        when(deezerProvider.fetchByGenre(any(Genre.class), anyInt(), anyInt())).thenReturn(List.of());
+        when(itunesProvider.fetchByGenre(any(Genre.class), anyInt(), anyInt())).thenReturn(List.of());
+        when(deezerProvider.fetchByDecade(any(Decade.class), anyInt(), anyInt())).thenReturn(List.of());
+
+        seeder.seed();
+
+        verify(trackPopulationService).populateUkrainian(InitialDataSeeder.UKRAINIAN_TRACKS_PER_ARTIST);
+        verify(deezerProvider, never()).fetchByGenre(eq(Genre.UKRAINIAN), anyInt(), anyInt());
+        verify(itunesProvider, never()).fetchByGenre(eq(Genre.UKRAINIAN), anyInt(), anyInt());
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.beatgame.websocket;
 import com.beatgame.game.GameRedisService;
 import com.beatgame.game.GameService;
 import com.beatgame.game.GameState;
+import com.beatgame.metrics.GameMetrics;
 import com.beatgame.player.Player;
 import com.beatgame.player.PlayerRepository;
 import com.beatgame.room.Room;
@@ -39,13 +40,14 @@ class DisconnectEventListenerTest {
     @Mock SimpMessagingTemplate messagingTemplate;
     @Mock ScheduledExecutorService timerExecutor;
     @Mock GameService gameService;
+    @Mock GameMetrics gameMetrics;
 
     DisconnectEventListener listener;
 
     @BeforeEach
     void setUp() {
         listener = new DisconnectEventListener(gameRedisService, roomRepository,
-            playerRepository, messagingTemplate, timerExecutor, gameService);
+            playerRepository, messagingTemplate, timerExecutor, gameService, gameMetrics);
     }
 
     @Test
@@ -58,6 +60,27 @@ class DisconnectEventListenerTest {
         listener.handleDisconnect(disconnectEvent("tok", "ABC123"));
 
         verify(gameRedisService).markDisconnected("ABC123", "tok");
+    }
+
+    @Test
+    void disconnectTimeout_inGameRoomStillDisconnected_marksRoomFinishedAndIncrementsForfeitedMetric() {
+        Room room = room("ABC123");
+        Player disconnected = player("tok", false);
+        Player remaining = player("other-tok", true);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
+        when(gameRedisService.loadGameState("ABC123")).thenReturn(new GameState(3, new Long[]{1L, 2L, 3L}, "POP", "GENRE"));
+        when(gameRedisService.isDisconnected("ABC123", "tok")).thenReturn(true);
+        when(playerRepository.findByRoomId(any())).thenReturn(List.of(disconnected, remaining));
+        when(gameRedisService.getScoresByPlayerId(eq("ABC123"), any())).thenReturn(Map.of("11", 500, "10", 300));
+
+        listener.handleDisconnect(disconnectEvent("tok", "ABC123"));
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(timerExecutor).schedule(captor.capture(), eq(60L), eq(java.util.concurrent.TimeUnit.SECONDS));
+        captor.getValue().run();
+
+        org.assertj.core.api.Assertions.assertThat(room.getStatus()).isEqualTo(RoomStatus.FINISHED);
+        verify(roomRepository).save(room);
+        verify(gameMetrics).incrementGamesCompleted("forfeited");
     }
 
     @Test

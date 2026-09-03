@@ -204,8 +204,8 @@ public class GameRedisService {
         return Boolean.TRUE.equals(redisTemplate.hasKey("disconnect:" + roomCode + ":" + playerToken));
     }
 
-    public void clearDisconnect(String roomCode, String playerToken) {
-        redisTemplate.delete("disconnect:" + roomCode + ":" + playerToken);
+    public boolean clearDisconnect(String roomCode, String playerToken) {
+        return Boolean.TRUE.equals(redisTemplate.delete("disconnect:" + roomCode + ":" + playerToken));
     }
 
     public void clearGameData(String roomCode) {
