@@ -7,6 +7,9 @@ import type { CategoryType, LobbyPlayer } from '../types'
 import './Lobby.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+// Shared links use the canonical host even when playing on play.*: only the
+// canonical host redirects to the wake-up page while the game is asleep.
+const PUBLIC_ORIGIN = import.meta.env.VITE_PUBLIC_ORIGIN || window.location.origin
 
 interface ChipOption { value: string; label: string }
 
@@ -171,7 +174,7 @@ export default function Lobby() {
         await navigator.share({
           title: 'BeatGame',
           text: `Join my room: ${roomCode}`,
-          url: window.location.href,
+          url: PUBLIC_ORIGIN + window.location.pathname + window.location.search,
         })
         return
       } catch { /* user cancelled or API failed */ }
