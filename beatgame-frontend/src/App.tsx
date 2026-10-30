@@ -14,7 +14,7 @@ function RequireSession({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/solo/config" element={<SoloConfig />} />

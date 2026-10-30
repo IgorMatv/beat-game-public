@@ -20,14 +20,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -69,6 +72,24 @@ class GameServiceTest {
 
         assertThat(room.getStatus()).isEqualTo(RoomStatus.IN_GAME);
         verify(roomRepository).save(room);
+    }
+
+    @Test
+    void startGame_nonHost_isForbiddenAndDoesNotMutateRoomState() {
+        Room room = roomWithCode("ABC123");
+        Player guest = hostPlayer(room, "guest-tok");
+        guest.setHost(false);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.of(room));
+        when(playerRepository.findByPlayerToken("guest-tok")).thenReturn(Optional.of(guest));
+
+        assertThatThrownBy(() ->
+            gameService.startGame(new StartGameMessage("ABC123", 3, "POP", "GENRE"), "guest-tok", "ABC123"))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(room.getStatus()).isEqualTo(RoomStatus.WAITING);
+        verify(roomRepository, never()).save(any());
     }
 
     @Test

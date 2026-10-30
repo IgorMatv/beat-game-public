@@ -6,6 +6,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,5 +45,30 @@ class TrackPopulationControllerTest {
                 .param("categoryType", "GENRE")
                 .param("category", "POP"))
             .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void populate_wrongAdminToken_isForbidden() throws Exception {
+        mockMvc.perform(post("/api/admin/tracks/populate")
+                .header("X-Forwarded-For", "10.0.1.5")
+                .header("X-Admin-Token", "wrong-token")
+                .param("provider", "DEEZER")
+                .param("categoryType", "GENRE")
+                .param("category", "POP"))
+            .andExpect(status().isForbidden());
+
+        verify(populationService, never()).populate(any(), any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void populate_missingAdminToken_isRejected() throws Exception {
+        mockMvc.perform(post("/api/admin/tracks/populate")
+                .header("X-Forwarded-For", "10.0.1.6")
+                .param("provider", "DEEZER")
+                .param("categoryType", "GENRE")
+                .param("category", "POP"))
+            .andExpect(status().isBadRequest());
+
+        verify(populationService, never()).populate(any(), any(), any(), anyInt(), anyInt());
     }
 }

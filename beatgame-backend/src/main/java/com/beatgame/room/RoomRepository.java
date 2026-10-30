@@ -16,9 +16,13 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     long countByStatusIn(List<RoomStatus> statuses);
 
+    // IN_GAME is included too (issue #84): no legitimate round timer, ready-gate,
+    // or disconnect-forfeit window runs anywhere near 24h, so an IN_GAME room
+    // this old is abandoned — the backend died before GameOverMessage ever
+    // fired, not a real game still in progress.
     @Query("""
         SELECT r FROM Room r
-        WHERE r.status IN ('WAITING', 'FINISHED')
+        WHERE r.status IN ('WAITING', 'FINISHED', 'IN_GAME')
           AND r.createdAt < :before
         """)
     List<Room> findStaleRooms(@Param("before") LocalDateTime before);

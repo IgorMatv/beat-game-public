@@ -30,6 +30,14 @@ public class RoomCleanupJob {
         List<Room> stale = roomRepository.findStaleRooms(cutoff);
         if (stale.isEmpty()) return;
 
+        long staleInGame = stale.stream().filter(r -> r.getStatus() == RoomStatus.IN_GAME).count();
+        if (staleInGame > 0) {
+            // A room stuck in IN_GAME for 24h+ means GameOverMessage never fired —
+            // the backend likely died mid-game. Routine WAITING/FINISHED expiry is
+            // normal; this isn't, so it's worth a louder log line to catch in prod.
+            log.warn("Cleanup: {} of the stale rooms were still IN_GAME — GameOverMessage likely never fired for them", staleInGame);
+        }
+
         stale.forEach(room ->
             playerRepository.deleteAll(playerRepository.findByRoomId(room.getId())));
         roomRepository.deleteAll(stale);

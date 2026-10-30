@@ -28,6 +28,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.atLeastOnce;
@@ -105,6 +106,24 @@ class RoundServiceTest {
 
         roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok", "ABC123");
 
+        verify(gameRedisService, never()).incrementAnswers(any(), anyInt());
+    }
+
+    @Test
+    void submitAnswer_roomNoLongerExists_dropsMessageWithoutThrowing() {
+        // issue #73: room deleted (cleanup job, or a reset racing an in-flight
+        // answer) between round start and this answer arriving.
+        GameState state = new GameState(3, new Long[]{1L, 2L, 3L}, "POP", "GENRE");
+        when(gameRedisService.markAnswered(any(), anyInt(), any())).thenReturn(true);
+        when(gameRedisService.getCurrentRound("ABC123")).thenReturn(1);
+        when(gameRedisService.loadGameState("ABC123")).thenReturn(state);
+        when(roomRepository.findByCode("ABC123")).thenReturn(Optional.empty());
+
+        assertThatCode(() ->
+            roundService.submitAnswer(new SubmitAnswerMessage("ABC123", 1L, 0, 3000), "tok", "ABC123"))
+            .doesNotThrowAnyException();
+
+        verify(gameRedisService, never()).addScore(any(), any(), anyInt());
         verify(gameRedisService, never()).incrementAnswers(any(), anyInt());
     }
 

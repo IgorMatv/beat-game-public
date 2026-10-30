@@ -54,6 +54,25 @@ class RoomCleanupJobTest {
     }
 
     @Test
+    void deleteStaleRooms_deletesStaleInGameRoomsToo() {
+        // issue #84: findStaleRooms now includes abandoned IN_GAME rooms — the job
+        // shouldn't special-case them away, just delete like any other stale room.
+        Room room = new Room();
+        room.setCode("STUCK1");
+        room.setStatus(RoomStatus.IN_GAME);
+        ReflectionTestUtils.setField(room, "id", 1L);
+        Player player = new Player();
+        player.setName("Alice");
+        when(roomRepository.findStaleRooms(any())).thenReturn(List.of(room));
+        when(playerRepository.findByRoomId(1L)).thenReturn(List.of(player));
+
+        job.deleteStaleRooms();
+
+        verify(playerRepository).deleteAll(List.of(player));
+        verify(roomRepository).deleteAll(List.of(room));
+    }
+
+    @Test
     void deleteStaleRooms_deletesPlayersForEachRoom() {
         Room room1 = new Room(); room1.setCode("R1");
         ReflectionTestUtils.setField(room1, "id", 1L);

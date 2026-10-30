@@ -87,7 +87,14 @@ public class RoundService {
         long correctTrackId = state.trackIds()[currentRound - 1];
         if (correctTrackId != msg.trackId()) return; // stale answer from a previous round
 
-        Room room = roomRepository.findByCode(roomCode).orElseThrow();
+        Room room = roomRepository.findByCode(roomCode).orElse(null);
+        if (room == null) {
+            // Room was deleted (cleanup job, or a reset that races an in-flight
+            // answer) between the client's round starting and this answer
+            // arriving — drop it rather than surface a bare NoSuchElementException.
+            log.warn("Dropping game.answer: room {} no longer exists", roomCode);
+            return;
+        }
         int correctIndex = gameRedisService.getCorrectIndex(roomCode, currentRound);
         boolean correct = correctIndex >= 0 && msg.answerIndex() == correctIndex;
         int score = calculateScore(correct, msg.timeMs());

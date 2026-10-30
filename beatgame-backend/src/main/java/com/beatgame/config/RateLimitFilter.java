@@ -20,16 +20,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final ConcurrentHashMap<String, Bucket> joinBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> resetBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> adminBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Bucket> roomReadBuckets = new ConcurrentHashMap<>();
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        if ("POST".equals(request.getMethod())) {
-            String path = request.getRequestURI();
-            String ip = clientIp(request);
-            Bucket bucket = null;
+        String method = request.getMethod();
+        String path = request.getRequestURI();
+        String ip = clientIp(request);
+        Bucket bucket = null;
 
+        if ("POST".equals(method)) {
             if (path.equals("/api/rooms") || path.equals("/api/rooms/solo")) {
                 if (createBuckets.size() < 100_000) {
                     bucket = createBuckets.computeIfAbsent(ip, k -> newCreateBucket());
@@ -47,13 +49,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     bucket = adminBuckets.computeIfAbsent(ip, k -> newAdminBucket());
                 }
             }
-
-            if (bucket != null && !bucket.tryConsume(1)) {
-                response.setStatus(429);
-                response.setContentType("application/json");
-                response.getWriter().write("{\"error\":\"Too many requests\"}");
-                return;
+        } else if ("GET".equals(method)) {
+            // Room code is a 6-char guessable string with no auth on these two
+            // reads — throttle per-IP to slow down enumeration/scraping (issue #65).
+            if (path.matches("/api/rooms/[^/]+") || path.matches("/api/rooms/[^/]+/players")) {
+                if (roomReadBuckets.size() < 100_000) {
+                    bucket = roomReadBuckets.computeIfAbsent(ip, k -> newRoomReadBucket());
+                }
             }
+        }
+
+        if (bucket != null && !bucket.tryConsume(1)) {
+            response.setStatus(429);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Too many requests\"}");
+            return;
         }
 
         chain.doFilter(request, response);
@@ -102,6 +112,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
             .addLimit(Bandwidth.builder()
                 .capacity(3)
                 .refillGreedy(3, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    private Bucket newRoomReadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(30)
+                .refillGreedy(30, Duration.ofMinutes(1))
                 .build())
             .build();
     }

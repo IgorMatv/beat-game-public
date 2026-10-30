@@ -12,6 +12,7 @@ import com.beatgame.room.RoomStatus;
 import com.beatgame.websocket.dto.GameOverMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -27,7 +28,11 @@ import java.util.concurrent.TimeUnit;
 public class DisconnectEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(DisconnectEventListener.class);
-    private static final int REJOIN_TIMEOUT_SECONDS = 60;
+
+    // Configurable (default unchanged) so integration tests can shrink the rejoin
+    // window instead of a real 60s wait (issue #72).
+    @Value("${disconnect.rejoin-timeout-seconds:60}")
+    private int rejoinTimeoutSeconds;
 
     private final GameRedisService gameRedisService;
     private final RoomRepository roomRepository;
@@ -86,7 +91,7 @@ public class DisconnectEventListener {
         }
 
         log.info("Player {} disconnected from room {} — starting {}-second rejoin window",
-            playerToken, roomCode, REJOIN_TIMEOUT_SECONDS);
+            playerToken, roomCode, rejoinTimeoutSeconds);
         gameRedisService.markDisconnected(roomCode, playerToken);
 
         timerExecutor.schedule(() -> {
@@ -94,7 +99,7 @@ public class DisconnectEventListener {
                 log.info("Player {} did not rejoin room {} — triggering game over", playerToken, roomCode);
                 sendGameOverDueToDisconnect(roomCode, room, playerToken);
             }
-        }, REJOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }, rejoinTimeoutSeconds, TimeUnit.SECONDS);
     }
 
     // A host who disconnects before the game starts otherwise leaves the guest stuck
@@ -108,14 +113,14 @@ public class DisconnectEventListener {
         if (player == null || !player.isHost()) return;
 
         log.info("Host {} disconnected from lobby room {} — starting {}-second rejoin window before host transfer",
-            playerToken, roomCode, REJOIN_TIMEOUT_SECONDS);
+            playerToken, roomCode, rejoinTimeoutSeconds);
         gameRedisService.markDisconnected(roomCode, playerToken);
 
         timerExecutor.schedule(() -> {
             if (gameRedisService.isDisconnected(roomCode, playerToken)) {
                 transferHostIfStillDisconnected(roomCode, playerToken);
             }
-        }, REJOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }, rejoinTimeoutSeconds, TimeUnit.SECONDS);
     }
 
     private void transferHostIfStillDisconnected(String roomCode, String disconnectedHostToken) {

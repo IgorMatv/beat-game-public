@@ -48,6 +48,9 @@ class DisconnectEventListenerTest {
     void setUp() {
         listener = new DisconnectEventListener(gameRedisService, roomRepository,
             playerRepository, messagingTemplate, timerExecutor, gameService, gameMetrics);
+        // @Value isn't applied by plain `new` — set the default explicitly so the
+        // existing eq(60L) assertions below keep testing the real default.
+        ReflectionTestUtils.setField(listener, "rejoinTimeoutSeconds", 60);
     }
 
     @Test
